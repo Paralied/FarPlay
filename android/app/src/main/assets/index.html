@@ -13,10 +13,44 @@
 </main>
 <section id="session" hidden>
  <video id="video" autoplay playsinline></video><canvas id="compat" hidden></canvas>
- <div id="look" aria-label="Swipe to move the mouse"></div>
- <header class="toolbar"><b>FarPlay</b><span id="stats">Connecting…</span><button id="sound">Enable sound</button><button id="keyboard">Type</button><button id="full">Full screen</button><button id="leave">Disconnect</button></header>
- <div class="movement"><button class="up" data-key="w">W</button><button class="left" data-key="a">A</button><button class="down" data-key="s">S</button><button class="right" data-key="d">D</button></div>
- <div class="actions"><button data-button="left">Attack</button><button data-button="right">Use</button><button data-key="space">Jump</button><button data-key="shift">Sneak</button><button data-key="ctrl">Sprint</button><button data-key="e">Inventory</button><button data-key="t">Chat</button></div>
- <div class="hotbar"><button data-key="escape">Esc</button><button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button data-key="enter">Enter</button></div>
+ <div id="look" aria-label="Swipe to look around; tap in cursor mode to click"></div>
+ <div class="play-hud" id="play-hud">
+  <header class="play-top">
+   <div class="connection-pill"><i></i><span id="stats">Connecting…</span></div>
+   <div class="top-actions">
+    <button id="chat" class="chat-button" aria-label="Open Minecraft chat"><svg viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h6"/></svg><span>Chat</span></button>
+    <button id="menu" class="icon-button" aria-label="Open play settings"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+   </div>
+  </header>
+  <div id="touch-controls">
+   <div class="left-cluster">
+    <div class="movement-toggles"><button data-toggle="shift" aria-pressed="false">Sneak</button><button data-toggle="ctrl" aria-pressed="false">Sprint</button></div>
+    <div id="joystick" role="group" aria-label="Movement joystick"><div class="stick-guide">⌃</div><div id="stick"><svg viewBox="0 0 24 24"><path d="m8 5 4-3 4 3M8 19l4 3 4-3M5 8l-3 4 3 4M19 8l3 4-3 4"/></svg></div><span class="stick-caption">MOVE</span></div>
+   </div>
+   <div class="right-cluster">
+    <button class="inventory-button" data-key="e"><svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="15" rx="3"/><path d="M9 6V3h6v3M5 12h14M9 16h6"/></svg>Bag</button>
+    <div class="combat-pad">
+     <button class="action-use" data-button="right"><svg viewBox="0 0 24 24"><path d="m5 11 7-8 7 8-7 10Z"/></svg><span>Use</span></button>
+     <button class="action-attack" data-button="left"><svg viewBox="0 0 24 24"><path d="m5 19 12-12 3-4-4 1L4 16M3 13l8 8M3 21l3-3"/></svg><span>Attack</span></button>
+     <button class="action-jump" data-key="space"><svg viewBox="0 0 24 24"><path d="m6 11 6-7 6 7M12 4v15M6 20h12"/></svg><span>Jump</span></button>
+    </div>
+   </div>
+   <div class="hotbar" aria-label="Minecraft hotbar"><button data-slot="1" aria-label="Hotbar slot 1" aria-pressed="false">1</button><button data-slot="2" aria-label="Hotbar slot 2" aria-pressed="false">2</button><button data-slot="3" aria-label="Hotbar slot 3" aria-pressed="false">3</button><button data-slot="4" aria-label="Hotbar slot 4" aria-pressed="false">4</button><button data-slot="5" aria-label="Hotbar slot 5" aria-pressed="false">5</button><button data-slot="6" aria-label="Hotbar slot 6" aria-pressed="false">6</button><button data-slot="7" aria-label="Hotbar slot 7" aria-pressed="false">7</button><button data-slot="8" aria-label="Hotbar slot 8" aria-pressed="false">8</button><button data-slot="9" aria-label="Hotbar slot 9" aria-pressed="false">9</button></div>
+  </div>
+  <div id="toast" role="status" hidden></div>
+  <button id="restore-controls" hidden>Show controls</button>
+ </div>
+ <div id="settings-layer" hidden>
+  <button id="settings-backdrop" aria-label="Close play settings"></button>
+  <aside class="play-settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+   <div class="settings-heading"><div><small>FARPLAY</small><h2 id="settings-title">Make yourself comfortable.</h2></div><button id="close-menu" class="icon-button" aria-label="Close settings">✕</button></div>
+   <div class="settings-shortcuts"><button id="pause-game">Game menu</button><button id="cursor-mode" aria-pressed="false">Cursor mode</button><button id="keyboard">Type text</button><button id="sound">Enable sound</button></div>
+   <label>Look sensitivity <output id="sensitivity-value">2.0×</output><input id="sensitivity" type="range" min="0.5" max="4" step="0.1" value="2"></label>
+   <label>Control size <output id="size-value">100%</output><input id="control-size" type="range" min="80" max="120" step="5" value="100"></label>
+   <label>Control opacity <output id="opacity-value">70%</output><input id="control-opacity" type="range" min="30" max="100" step="5" value="70"></label>
+   <div class="settings-shortcuts"><button id="left-handed" aria-pressed="false">Left-handed</button><button id="hide-controls">Hide controls</button><button id="reset-layout">Reset layout</button><button id="leave" class="disconnect-button">Disconnect</button></div>
+   <p>Chat opens Minecraft chat for you. Cursor mode adds tap-to-click for menus. Sneak and sprint stay on until tapped again.</p>
+  </aside>
+ </div>
 </section>
 <script src="/client.js"></script></body></html>

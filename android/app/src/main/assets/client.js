@@ -7,9 +7,9 @@ function send(payload){
   if(mode==='compatibility')signal({type:'input',payload});
   else if(channel?.readyState==='open'&&channel.bufferedAmount<16384)channel.send(JSON.stringify(payload));
 }
-function release(){send({type:'release'});document.querySelectorAll('.held').forEach(e=>e.classList.remove('held'));}
+function release(){send({type:'release'});resetControls();}
 function end(message='Disconnected. Tap Connect when you are ready.'){
-  epoch++;release();clearInterval(heartbeat);clearTimeout(sessionTimer);heartbeat=null;mode='idle';
+  epoch++;release();closeMenu();composing=false;typingBusy=false;window.FarPlay.setPlaying(false);clearInterval(heartbeat);clearTimeout(sessionTimer);heartbeat=null;mode='idle';
   const previous=pc;pc=null;channel=null;previous?.close();
   window.FarPlay.disconnectPC();
   $('video').srcObject=null;$('session').hidden=true;$('setup').hidden=false;
@@ -17,7 +17,7 @@ function end(message='Disconnected. Tap Connect when you are ready.'){
   if(audio){audio.close().catch(()=>{});audio=null;}audioNext=0;
 }
 function showSession(){
-  clearTimeout(sessionTimer);$('session').hidden=false;$('setup').hidden=true;
+  clearTimeout(sessionTimer);if($('session').hidden)window.FarPlay.setPlaying(true);$('session').hidden=false;$('setup').hidden=true;
   $('video').hidden=mode==='compatibility';$('compat').hidden=mode!=='compatibility';
 }
 function sound(){
@@ -81,7 +81,11 @@ async function packet(base64){
 }
 window.onNative=async(type,data)=>{
   try{
-    if(type==='saved'){
+    if(type==='controls'){applyPreferences(data);}
+    else if(type==='composer-send'){await finishComposer(data,false);}
+    else if(type==='composer-cancel'){await finishComposer(data,true);}
+    else if(type==='back'){if(!$('settings-layer').hidden)closeMenu();else if(!$('session').hidden)openMenu();}
+    else if(type==='saved'){
       $('pairing').hidden=data.paired;$('paired-options').hidden=!data.paired;$('connect').hidden=!data.paired;
       $('pc-name').textContent=data.name;$('badge').textContent=data.paired?'PAIRED':'NOT PAIRED';
     }else if(type==='paired'){$('pair-code').value='';status(data);}
@@ -95,7 +99,7 @@ window.onNative=async(type,data)=>{
         await startStream();
       }else if(data.type==='answer'&&pc)await pc.setRemoteDescription({type:'answer',sdp:data.sdp});
       else if(data.type==='compatibility'){mode='compatibility';$('stats').textContent='Direct compatibility · up to 20 FPS';}
-      else if(data.type==='pong')$('stats').textContent=`${mode==='compatibility'?'Direct compatibility':'Direct video'} · ${Date.now()-data.at} ms`;
+      else if(data.type==='pong')$('stats').textContent=`${mode==='compatibility'?'Compatibility':'Direct'} · ${Date.now()-data.at} ms`;
     }
   }catch(e){end('Connection interrupted: '+e.message);}
 };
@@ -107,31 +111,114 @@ $('connect').onclick=()=>{
   sound();window.FarPlay.connectPC();
   sessionTimer=setTimeout(()=>end('PC unreachable. Check that FarPlay is open on your PC.'),15000);
 };
-$('leave').onclick=()=>end();
-$('sound').onclick=sound;
-$('full').onclick=async()=>{try{await $('session').requestFullscreen();await screen.orientation?.lock('landscape');}catch{}};
-$('keyboard').onclick=()=>{release();const text=prompt('Type into the focused PC field (open Minecraft chat first):');if(text)send({type:'text',text:text.slice(0,200)});};
+// Touch ownership prevents one thumb releasing a key still held by another input.
+const keyOwners=new Map(), activePointers=new Map();
+let joyPointer=null, lookPointer=null, lastX=0,lastY=0,lookTravel=0,lookStarted=0;
+let composing=false,typingBusy=false,composerKind='chat',draft='',cursorMode=false,toastTimer;
+let prefs={sensitivity:2,size:100,opacity:70,leftHanded:false};
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function blocked(){return composing||typingBusy||!$('settings-layer').hidden||$('session').hidden;}
+function hold(key,down,owner){
+  const owners=keyOwners.get(key)||new Set();const before=owners.size;
+  if(down)owners.add(owner);else owners.delete(owner);
+  if(owners.size)keyOwners.set(key,owners);else keyOwners.delete(key);
+  if(!before&&owners.size)send({type:'key',key,down:true});
+  if(before&&!owners.size)send({type:'key',key,down:false});
+}
+function resetControls(){
+  keyOwners.clear();activePointers.clear();joyPointer=null;lookPointer=null;
+  $('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');
+  document.querySelectorAll('.held').forEach(e=>e.classList.remove('held'));
+  document.querySelectorAll('[data-toggle]').forEach(e=>e.setAttribute('aria-pressed','false'));
+}
+function toast(text){clearTimeout(toastTimer);$('toast').textContent=text;$('toast').hidden=false;toastTimer=setTimeout(()=>{$('toast').hidden=true;},2200);}
+async function tapKey(key){const gen=epoch;send({type:'key',key,down:true});await delay(45);if(gen===epoch)send({type:'key',key,down:false});}
+function closeMenu(){$('settings-layer').hidden=true;}
+function openMenu(){release();$('settings-layer').hidden=false;}
+$('menu').onclick=openMenu;$('close-menu').onclick=closeMenu;$('settings-backdrop').onclick=closeMenu;
+$('leave').onclick=()=>end();$('sound').onclick=()=>{sound();toast('Sound enabled');};
+$('pause-game').onclick=()=>{closeMenu();tapKey('escape');};
+$('cursor-mode').onclick=()=>{cursorMode=!cursorMode;$('cursor-mode').setAttribute('aria-pressed',String(cursorMode));closeMenu();toast(cursorMode?'Cursor mode · swipe to move, tap to click':'Look mode · swipe to look around');};
+$('hide-controls').onclick=()=>{release();$('touch-controls').hidden=true;$('restore-controls').hidden=false;closeMenu();};
+$('restore-controls').onclick=()=>{$('touch-controls').hidden=false;$('restore-controls').hidden=true;};
+function applyPreferences(value){
+  const number=(key,min,max,fallback)=>Number.isFinite(Number(value?.[key]))?Math.max(min,Math.min(max,Number(value[key]))):fallback;
+  prefs={sensitivity:number('sensitivity',.5,4,2),size:number('size',80,120,100),opacity:number('opacity',30,100,70),leftHanded:value?.leftHanded===true};
+  $('sensitivity').value=prefs.sensitivity;$('control-size').value=prefs.size;$('control-opacity').value=prefs.opacity;
+  $('sensitivity-value').textContent=prefs.sensitivity.toFixed(1)+'×';$('size-value').textContent=prefs.size+'%';$('opacity-value').textContent=prefs.opacity+'%';
+  $('session').style.setProperty('--control-scale',prefs.size/100);$('session').style.setProperty('--control-opacity',prefs.opacity/100);
+  $('session').classList.toggle('left-handed',prefs.leftHanded);$('left-handed').setAttribute('aria-pressed',String(prefs.leftHanded));
+}
+function savePreferences(){applyPreferences(prefs);window.FarPlay.saveControls(JSON.stringify(prefs));}
+for(const [id,key] of [['sensitivity','sensitivity'],['control-size','size'],['control-opacity','opacity']])$(id).oninput=e=>{prefs[key]=Number(e.target.value);savePreferences();};
+$('left-handed').onclick=()=>{release();prefs.leftHanded=!prefs.leftHanded;savePreferences();};
+$('reset-layout').onclick=()=>{prefs={sensitivity:2,size:100,opacity:70,leftHanded:false};savePreferences();toast('Controls reset');};
+async function compose(kind){
+  if(composing||typingBusy||$('session').hidden)return;
+  closeMenu();release();composing=true;composerKind=kind;
+  const gen=epoch;
+  if(kind==='chat'){await tapKey('t');await delay(120);}
+  if(gen!==epoch)return;
+  window.FarPlay.compose(kind,kind==='chat'?draft:'');
+}
+$('chat').onclick=()=>compose('chat');$('keyboard').onclick=()=>compose('text');
+async function finishComposer(data,cancel){
+  if(!composing)return;
+  const kind=composerKind;const gen=epoch;
+  let text=String(data?.text||'').replace(/[\x00-\x1f\x7f]/g,' ').slice(0,200);
+  if(kind==='chat')draft=cancel?text:'';
+  composing=false;typingBusy=true;
+  try{
+    if(cancel){if(kind==='chat')await tapKey('escape');return;}
+    if(!text.trim()){if(kind==='chat')await tapKey('escape');return;}
+    send({type:'text',text});
+    if(kind==='chat'){await delay(180);if(epoch!==gen)return;await tapKey('enter');}
+    if(epoch===gen)toast(kind==='chat'?'Message sent':'Text entered');
+  }finally{if(epoch===gen)typingBusy=false;}
+}
 for(const button of document.querySelectorAll('[data-key],[data-button]')){
-  let pointer=null;
-  const payload=down=>({type:button.dataset.key?'key':'button',key:button.dataset.key||button.dataset.button,down});
-  button.onpointerdown=event=>{
-    event.preventDefault();if(pointer!==null)return;pointer=event.pointerId;
-    button.setPointerCapture(pointer);button.classList.add('held');send(payload(true));
+  button.onpointerdown=e=>{
+    e.preventDefault();if(blocked()||activePointers.has(button))return;
+    activePointers.set(button,e.pointerId);button.setPointerCapture(e.pointerId);button.classList.add('held');
+    if(button.dataset.key)hold(button.dataset.key,true,button);
+    else send({type:'button',key:button.dataset.button,down:true});
   };
-  const up=event=>{if(pointer!==event.pointerId)return;pointer=null;button.classList.remove('held');send(payload(false));};
+  const up=e=>{if(activePointers.get(button)!==e.pointerId)return;activePointers.delete(button);button.classList.remove('held');
+    if(button.dataset.key)hold(button.dataset.key,false,button);else send({type:'button',key:button.dataset.button,down:false});};
   button.onpointerup=up;button.onpointercancel=up;button.onlostpointercapture=up;
 }
-let lookPointer=null, lastX=0,lastY=0;
-$('look').onpointerdown=e=>{if(lookPointer!==null)return;lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;$('look').setPointerCapture(e.pointerId);};
-$('look').onpointermove=e=>{if(e.pointerId!==lookPointer)return;send({type:'move',x:(e.clientX-lastX)*2,y:(e.clientY-lastY)*2});lastX=e.clientX;lastY=e.clientY;};
-$('look').onpointerup=$('look').onpointercancel=()=>{lookPointer=null;};
+for(const button of document.querySelectorAll('[data-toggle]'))button.onclick=()=>{
+  if(blocked())return;const down=button.getAttribute('aria-pressed')!=='true';
+  hold(button.dataset.toggle,down,button);button.setAttribute('aria-pressed',String(down));
+};
+for(const button of document.querySelectorAll('[data-slot]'))button.onclick=()=>{
+  if(blocked())return;tapKey(button.dataset.slot);
+  document.querySelectorAll('[data-slot]').forEach(b=>{b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));});
+};
+function moveStick(e){
+  const box=$('joystick').getBoundingClientRect();const factor=144/box.width;
+  let x=(e.clientX-box.left-box.width/2)*factor,y=(e.clientY-box.top-box.height/2)*factor;
+  const distance=Math.hypot(x,y);if(distance>44){x*=44/distance;y*=44/distance;}
+  $('stick').style.transform=`translate(${x}px,${y}px)`;
+  const moving=distance>12;
+  for(const [key,down] of [['a',x<-12],['d',x>12],['w',y<-12],['s',y>12]])hold(key,moving&&down,'joystick');
+}
+$('joystick').onpointerdown=e=>{e.preventDefault();if(blocked()||joyPointer!==null)return;joyPointer=e.pointerId;$('joystick').setPointerCapture(joyPointer);$('joystick').classList.add('stick-active');moveStick(e);};
+$('joystick').onpointermove=e=>{if(e.pointerId===joyPointer)moveStick(e);};
+const stopStick=e=>{if(e.pointerId!==joyPointer)return;joyPointer=null;for(const key of ['w','a','s','d'])hold(key,false,'joystick');$('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');};
+$('joystick').onpointerup=stopStick;$('joystick').onpointercancel=stopStick;$('joystick').onlostpointercapture=stopStick;
+$('look').onpointerdown=e=>{if(blocked()||lookPointer!==null)return;lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;lookTravel=0;lookStarted=performance.now();$('look').setPointerCapture(e.pointerId);};
+$('look').onpointermove=e=>{if(e.pointerId!==lookPointer)return;const x=e.clientX-lastX,y=e.clientY-lastY;lookTravel+=Math.abs(x)+Math.abs(y);send({type:'move',x:x*prefs.sensitivity,y:y*prefs.sensitivity});lastX=e.clientX;lastY=e.clientY;};
+$('look').onpointerup=async e=>{if(e.pointerId!==lookPointer)return;lookPointer=null;if(cursorMode&&lookTravel<8&&performance.now()-lookStarted<300){const gen=epoch;send({type:'button',key:'left',down:true});await delay(40);if(epoch===gen)send({type:'button',key:'left',down:false});}};
+$('look').onpointercancel=$('look').onlostpointercapture=()=>{lookPointer=null;};
 window.addEventListener('blur',release);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)end('Stream paused because the app went into the background.');});
+window.addEventListener('resize',release);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)end('Paused. Tap Connect to resume.');});
 window.addEventListener('pagehide',()=>end());
 window.addEventListener('contextmenu',e=>{if(!$('session').hidden)e.preventDefault();});
 const keyMap={KeyW:'w',KeyA:'a',KeyS:'s',KeyD:'d',Space:'space',ShiftLeft:'shift',ControlLeft:'ctrl',KeyE:'e',KeyT:'t',Escape:'escape',Enter:'enter',Backspace:'backspace'};
 for(let i=1;i<=9;i++)keyMap['Digit'+i]=String(i);
 for(const type of ['keydown','keyup'])window.addEventListener(type,e=>{
-  if($('session').hidden||!keyMap[e.code]||e.repeat)return;
-  e.preventDefault();send({type:'key',key:keyMap[e.code],down:type==='keydown'});
+  if(blocked()||!keyMap[e.code]||e.repeat||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+  e.preventDefault();hold(keyMap[e.code],type==='keydown','physical-'+e.code);
 });

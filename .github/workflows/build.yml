@@ -47,6 +47,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Verify mobile controls
+        run: node tests/mobile-controls.cjs
       - run: gradle --no-daemon -p android assembleDebug
       - uses: actions/upload-artifact@v4
         with:
@@ -73,15 +75,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: v0.2.0-build.${{ github.run_number }}
+          RELEASE_TAG: v0.2.1-build.${{ github.run_number }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           mv release/app-debug.apk release/FarPlay-Android.apk
           cat > release-notes.md <<'NOTES'
-          Direct PC-hosted FarPlay. No hosted connection service, VPN, subscription, or external relay.
+          FarPlay touch layout update: thumb joystick, larger action buttons, one-step Minecraft chat, saved layout settings, automatic landscape fullscreen, and screenshots enabled.
 
           Download FarPlayHost.exe for Windows and FarPlay-Android.apk for Android.
           The Windows package passes an automated startup check. Real-device streaming remains unverified.
+          Existing v0.2.0 PC hosts are compatible with this Android update.
           Open the PC EXE, choose Pair my phone, scan its QR code in the Android app, then tap Connect.
           Automatic router mapping is attempted. If the router blocks it, see Network setup in the PC app. CGNAT can still prevent remote access.
           Direct WebRTC streaming falls back to direct TCP compatibility mode when needed. Real-device gaming performance is not yet verified.

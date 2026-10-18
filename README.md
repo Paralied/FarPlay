@@ -29,7 +29,7 @@ If Android refuses to install over an earlier test build, uninstall that build f
 
 ## Controls and safety
 
-Minecraft touch controls include WASD, mouse look, attack, use, jump, sneak, sprint, inventory, chat, hotbar, typing, and Escape. Try Minecraft in borderless/windowed mode; turn Raw Input off if swipe look is not recognized. Keep the game non-elevated.
+The mobile play screen uses a thumb joystick, swipe look, large attack/use/jump buttons, sneak and sprint toggles, and a nine-slot hotbar. Tap Chat to open Minecraft chat and type with the phone keyboard; Send inserts the message and presses Enter. Cancel retains your draft. Chat assumes the default T binding. The menu offers cursor mode, PC typing, Escape, and saved sensitivity, size, opacity, and left-handed settings. Gameplay enters landscape fullscreen automatically. Screenshots and screen recording are allowed. Try Minecraft in borderless/windowed mode; turn Raw Input off if swipe look is not recognized. Keep the game non-elevated.
 
 Pairing QR codes carry a random one-use invitation, the PC's TLS certificate SHA-256 fingerprint, and the PC addresses. Codes expire after five minutes. Keep them private. The phone verifies that exact certificate, exchanges the invitation for a persistent random credential, and stores the credential using Android Keystore encryption. Windows protects the PC identity with DPAPI. Access tokens are stored hashed on the host, and are never placed in URLs. **Forget all phones** revokes access and disconnects the current session.
 

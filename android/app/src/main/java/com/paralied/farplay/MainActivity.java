@@ -44,11 +44,13 @@ public class MainActivity extends Activity {
     private volatile boolean destroyed = false;
     private volatile boolean pairing = false;
     private JSONObject saved;
+    private AlertDialog composer;
+    private boolean playing=false;
     private static final String ORIGIN = "https://appassets.androidplatform.net";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_SECURE);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         try { saved = loadSaved(); } catch (Exception e) { saved = null; }
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(9,14,24));
@@ -109,6 +111,7 @@ public class MainActivity extends Activity {
         JSONObject info=new JSONObject();
         try { info.put("paired",saved!=null); info.put("name",saved==null?"My PC":saved.optString("name","My PC")); } catch(JSONException ignored){}
         emit("saved",info);
+        try{emit("controls",new JSONObject(getPreferences(MODE_PRIVATE).getString("controls","{}")));}catch(JSONException ignored){}
     }
     private SecretKey storageKey() throws Exception {
         KeyStore ks=KeyStore.getInstance("AndroidKeyStore");ks.load(null);
@@ -229,7 +232,62 @@ public class MainActivity extends Activity {
             });
         }catch(Exception e){error("Unable to connect. Pair your PC again.");}
     }
+    private void showComposer(String kind,String draft){
+        if(destroyed||!playing||composer!=null)return;
+        final boolean chat="chat".equals(kind);
+        EditText input=new EditText(this);
+        input.setTextColor(Color.WHITE);input.setHintTextColor(Color.rgb(140,160,178));
+        input.setTextSize(17);input.setSingleLine(true);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(200)});
+        input.setHint(chat?"Message or /command":"Type into the selected PC field");
+        input.setText(draft==null?"":draft);input.setSelection(input.length());
+        android.widget.LinearLayout box=new android.widget.LinearLayout(this);box.setPadding(28,12,28,8);box.addView(input,new android.widget.LinearLayout.LayoutParams(-1,-2));
+        final boolean[] completed={false};
+        AlertDialog dialog=new AlertDialog.Builder(this,android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(chat?"Minecraft chat":"Type on your PC").setView(box)
+            .setPositiveButton(chat?"Send":"Insert",null).setNegativeButton("Cancel",null)
+            .setNeutralButton(chat?"/ Command":"Clear",null).create();
+        composer=dialog;
+        java.util.function.Consumer<Boolean> finish=cancel->{
+            if(completed[0])return;completed[0]=true;
+            JSONObject result=new JSONObject();try{result.put("text",input.getText().toString());}catch(JSONException ignored){}
+            emit(cancel?"composer-cancel":"composer-send",result);dialog.dismiss();
+        };
+        dialog.setOnCancelListener(d->finish.accept(true));
+        dialog.setOnDismissListener(d->{composer=null;if(playing)getWindow().getDecorView().setSystemUiVisibility(immersiveFlags());});
+        dialog.setOnShowListener(d->{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(input.length()>0)finish.accept(false);else input.setError("Type a message first");});
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->finish.accept(true));
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{input.setText(chat?"/":"");input.setSelection(input.length());});
+            input.requestFocus();dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            input.postDelayed(()->{if(composer==dialog)((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);},120);
+        });
+        input.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){if(input.length()>0)finish.accept(false);return true;}return false;});
+        dialog.show();
+    }
+    private int immersiveFlags(){return View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;}
+    private void setPlayMode(boolean enabled){
+        if(playing==enabled)return;playing=enabled;
+        if(!enabled&&composer!=null){composer.dismiss();composer=null;}
+        setRequestedOrientation(enabled?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        getWindow().getDecorView().setSystemUiVisibility(enabled?immersiveFlags():View.SYSTEM_UI_FLAG_VISIBLE);
+    }
     public class Bridge {
+        @JavascriptInterface public void compose(String kind,String draft){runOnUiThread(()->showComposer(kind,draft));}
+        @JavascriptInterface public void setPlaying(boolean enabled){runOnUiThread(()->setPlayMode(enabled));}
+        @JavascriptInterface public void saveControls(String value){
+            if(value==null||value.length()>512)return;
+            try{
+                JSONObject data=new JSONObject(value),clean=new JSONObject();
+                clean.put("sensitivity",Math.max(.5,Math.min(4,data.optDouble("sensitivity",2))));
+                clean.put("size",Math.max(80,Math.min(120,data.optInt("size",100))));
+                clean.put("opacity",Math.max(30,Math.min(100,data.optInt("opacity",70))));
+                clean.put("leftHanded",data.optBoolean("leftHanded",false));
+                getPreferences(MODE_PRIVATE).edit().putString("controls",clean.toString()).apply();
+            }catch(JSONException ignored){}
+        }
         @JavascriptInterface public void scan(){runOnUiThread(()->new IntentIntegrator(MainActivity.this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("Scan the code shown in FarPlay on your PC").setBeepEnabled(false).setOrientationLocked(false).initiateScan());}
         @JavascriptInterface public void pairCode(String code){pair(code);}
         @JavascriptInterface public void connectPC(){io.execute(()->connect());}
@@ -242,7 +300,7 @@ public class MainActivity extends Activity {
         if(result!=null){if(result.getContents()!=null)pair(result.getContents());return;}
         super.onActivityResult(requestCode,resultCode,data);
     }
-    @Override public void onBackPressed(){if(custom!=null){hideFullscreen();return;}web.evaluateJavascript("end()",null);}
+    @Override public void onBackPressed(){if(custom!=null){hideFullscreen();return;}if(playing)emit("back","");else super.onBackPressed();}
     @Override protected void onPause(){disconnect();if(web!=null)web.evaluateJavascript("end('Paused. Tap Connect to resume.')",null);super.onPause();}
     @Override protected void onDestroy(){destroyed=true;disconnect();io.shutdownNow();if(web!=null){web.removeJavascriptInterface("FarPlay");web.destroy();web=null;}super.onDestroy();}
 }
