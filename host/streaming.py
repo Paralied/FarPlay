@@ -3,6 +3,8 @@ import json
 import logging
 from aiortc import RTCPeerConnection, RTCConfiguration, RTCIceServer, RTCSessionDescription, RTCRtpSender
 from control import Controller
+from fast_video import install
+install()
 from media import DesktopAudio, DesktopVideo
 
 class Host:
@@ -31,7 +33,7 @@ class Host:
         self.pc = pc = RTCPeerConnection(RTCConfiguration(iceServers=[RTCIceServer(**s) for s in ice]))
         @pc.on('datachannel')
         def on_channel(channel):
-            if channel.label != 'controls':
+            if channel.label not in ('controls', 'look'):
                 channel.close()
                 return
             @channel.on('message')
@@ -40,6 +42,8 @@ class Host:
                     if not isinstance(raw, str) or len(raw) > 4096:
                         return
                     payload = json.loads(raw)
+                    if channel.label == 'look' and payload.get('type') != 'move':
+                        return
                     self.controls.handle(payload)
                     if payload.get('type') == 'ping' and channel.readyState == 'open':
                         channel.send(json.dumps({'type': 'pong', 'at': payload.get('at')}))
@@ -58,15 +62,21 @@ class Host:
             fps = 30
         self.tracks = [DesktopVideo(width=width, fps=fps), DesktopAudio(self.report)]
         try:
-            await pc.setRemoteDescription(RTCSessionDescription(sdp=payload['sdp'], type='offer'))
             for track in self.tracks:
                 pc.addTrack(track)
-            if fps == 60:
+            if fps == 60 or width > 1280:
                 codecs = RTCRtpSender.getCapabilities('video').codecs
                 vp8 = [c for c in codecs if c.mimeType.lower() == 'video/vp8']
                 for transceiver in pc.getTransceivers():
                     if transceiver.kind == 'video' and vp8:
                         transceiver.setCodecPreferences(vp8 + [c for c in codecs if c not in vp8])
+            else:
+                codecs = RTCRtpSender.getCapabilities('video').codecs
+                preferred = [c for c in codecs if c.mimeType.lower() == 'video/h264']
+                for transceiver in pc.getTransceivers():
+                    if transceiver.kind == 'video' and preferred:
+                        transceiver.setCodecPreferences(preferred + [c for c in codecs if c not in preferred])
+            await pc.setRemoteDescription(RTCSessionDescription(sdp=payload['sdp'], type='offer'))
             await pc.setLocalDescription(await pc.createAnswer())
             await ws.send_json({'type': 'answer', 'sdp': pc.localDescription.sdp})
         except Exception:

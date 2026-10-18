@@ -13,8 +13,6 @@ import android.view.View;
 import android.view.WindowManager;
 import android.webkit.*;
 import android.widget.EditText;
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -293,7 +291,10 @@ public class MainActivity extends Activity {
                 getPreferences(MODE_PRIVATE).edit().putString("controls",clean.toString()).apply();
             }catch(JSONException ignored){}
         }
-        @JavascriptInterface public void scan(){runOnUiThread(()->new IntentIntegrator(MainActivity.this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("Scan the code shown in FarPlay on your PC").setBeepEnabled(false).setOrientationLocked(false).initiateScan());}
+        @JavascriptInterface public void scan(){runOnUiThread(()->{
+            try{startActivityForResult(new Intent(MainActivity.this,ScanActivity.class),71);}
+            catch(RuntimeException e){error("Camera could not open. Paste the pairing code from your PC instead.");}
+        });}
         @JavascriptInterface public void pairCode(String code){pair(code);}
         @JavascriptInterface public void connectPC(){io.execute(()->connect());}
         @JavascriptInterface public void disconnectPC(){disconnect();}
@@ -301,8 +302,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void forget(){disconnect();synchronized(MainActivity.this){saved=null;getPreferences(MODE_PRIVATE).edit().remove("directPair").apply();}sendSaved();}
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        IntentResult result=IntentIntegrator.parseActivityResult(requestCode,resultCode,data);
-        if(result!=null){if(result.getContents()!=null)pair(result.getContents());return;}
+        if(requestCode==71){if(resultCode==RESULT_OK&&data!=null)pair(data.getStringExtra("pairCode"));return;}
         super.onActivityResult(requestCode,resultCode,data);
     }
     @Override public void onBackPressed(){if(custom!=null){hideFullscreen();return;}if(playing)emit("back","");else super.onBackPressed();}

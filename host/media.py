@@ -1,5 +1,6 @@
 import asyncio
 import fractions
+import logging
 import threading
 import time
 import numpy as np
@@ -23,6 +24,7 @@ class DesktopVideo(MediaStreamTrack):
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix='FarPlayCapture')
         self.closed = False
         self.last = 0
+        self.failures = 0
 
     def capture_frame(self):
         if self.capture is None:
@@ -45,12 +47,26 @@ class DesktopVideo(MediaStreamTrack):
         if self.closed:
             raise MediaStreamError
         self.last = time.monotonic()
-        return await asyncio.get_running_loop().run_in_executor(self.worker, self.capture_frame)
+        while not self.closed:
+            try:
+                frame = await asyncio.get_running_loop().run_in_executor(self.worker, self.capture_frame)
+                self.failures = 0
+                return frame
+            except Exception:
+                self.failures += 1
+                if self.failures == 1 or self.failures % 20 == 0:
+                    logging.warning('Display capture interrupted; rebuilding capture context', exc_info=True)
+                await asyncio.get_running_loop().run_in_executor(self.worker, self.close_capture)
+                await asyncio.sleep(.15)
+        raise MediaStreamError
 
     def close_capture(self):
         if self.capture is not None:
-            self.capture.close()
-            self.capture = None
+            old, self.capture = self.capture, None
+            try:
+                old.close()
+            except Exception:
+                logging.debug('Capture cleanup after display change', exc_info=True)
 
     def stop(self):
         if self.closed:

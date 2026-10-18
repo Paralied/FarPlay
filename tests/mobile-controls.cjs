@@ -8,19 +8,24 @@ const elements=[...html.matchAll(/<(button|div|section|input|video|canvas|main|o
 const get=id=>{const e=elements.find(e=>e.id===id);assert(e,'Missing element '+id);return e;};
 const query=s=>elements.filter(e=>s.split(',').some(s=>s==='.held'?e.classList.contains('held'):e.dataset[s.match(/data-([^\]]+)/)?.[1]]!==undefined));
 const sent=[],composers=[];
-const context=vm.createContext({document:{getElementById:get,querySelectorAll:query,addEventListener(){}},window:{FarPlay:{signal:s=>sent.push(JSON.parse(s).payload),compose:(...args)=>composers.push(args),setPlaying(){},disconnectPC(){},saveControls(){}},addEventListener(){}},setTimeout,clearTimeout,setInterval,clearInterval,performance,console});
+const context=vm.createContext({document:{getElementById:get,querySelectorAll:query,addEventListener(){}},window:{FarPlay:{signal:s=>sent.push(JSON.parse(s).payload),compose:(...args)=>composers.push(args),setPlaying(){},disconnectPC(){},saveControls(){}},addEventListener(){}},setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame:f=>setTimeout(f,16),cancelAnimationFrame:clearTimeout,performance,console});
 vm.runInContext(fs.readFileSync('android/app/src/main/assets/client.js','utf8'),context);
 const run=s=>vm.runInContext(s,context);
 const event=(id,x,y)=>({pointerId:id,clientX:x,clientY:y,preventDefault(){}});
 (async()=>{
  run("mode='compatibility';showSession()");
+ sent.length=0;get('look').onpointerdown(event(90,20,20));
+ for(let i=1;i<=4;i++)get('look').onpointermove(event(90,20+i*.2,20));
+ run('flushLook()');assert(sent.some(x=>x.type==='move'&&x.x===1));
+ get('look').onpointercancel(event(90));run('release()');
  get('joystick').onpointerdown(event(1,110,30));assert(sent.some(x=>x.key==='d'&&x.down));assert(sent.some(x=>x.key==='w'&&x.down));
  get('joystick').onpointercancel(event(1));assert(sent.some(x=>x.key==='w'&&!x.down));assert.equal(run('keyOwners.size'),0);
  const attack=query('[data-button]').find(e=>e.dataset.button==='left');attack.onpointerdown(event(2));get('menu').onclick();assert.equal(sent.at(-1).type,'release');assert.equal(run('activePointers.size'),0);get('close-menu').onclick();
  sent.length=0;await get('chat').onclick();assert.equal(composers.at(-1)[0],'chat');await context.window.onNative('composer-send',{text:'hello'});assert.deepEqual(sent.filter(x=>x.type==='key').map(x=>[x.key,x.down]),[['t',true],['t',false],['enter',true],['enter',false]]);assert(sent.some(x=>x.type==='text'&&x.text==='hello'));
  await get('chat').onclick();await context.window.onNative('composer-cancel',{text:'draft'});await get('chat').onclick();assert.equal(composers.at(-1)[1],'draft');await context.window.onNative('composer-cancel',{text:'draft'});
  run('applyPreferences({size:900,opacity:1,sensitivity:99,leftHanded:true})');assert.equal(run('prefs.size'),120);assert.equal(run('prefs.opacity'),30);
- await get('game-fullscreen').onclick();await new Promise(r=>setTimeout(r,60));assert(sent.some(x=>x.key==='f11'&&x.down));
+ await get('game-fullscreen').onclick();await new Promise(r=>setTimeout(r,60));assert(sent.some(x=>x.type==='game-fullscreen'));
+ await get('exclusive-fullscreen').onclick();await new Promise(r=>setTimeout(r,60));assert(sent.some(x=>x.key==='f11'&&x.down));
  get('mouse-toggle').onclick();assert.equal(run('cursorMode'),true);
  get('look').onpointerdown(event(5,72,36));await get('look').onpointerup(event(5,72,36));assert(sent.some(x=>x.type==='pointer'&&x.x===.5&&x.y===.25));
  get('scroll-down').onclick();assert.equal(sent.at(-1).steps,-3);

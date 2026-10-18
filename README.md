@@ -27,13 +27,21 @@ If Android refuses to install over an earlier test build, uninstall that build f
 - This version supports IPv4 pairing. If your public address changes, the saved phone address needs updating by pairing again. There is no external dynamic-address directory.
 - The PC app prevents automatic Windows sleep while hosting; the PC still needs to stay powered on, unlocked, online, and running the host. Closing or stopping the host disconnects phones.
 
-## Low-latency update (0.2.2)
+## Scanner, fullscreen and responsiveness fixes (0.2.3)
+
+Update both packages. QR pairing now uses FarPlay's own camera activity with explicit permission/denial handling; it does not launch a browser or external scanner. The default is 540p30 with an ultrafast, zero-delay H.264 software encoder. 720p remains available; 60 FPS and 1080p use VP8 and require more PC performance. The encoder integration is tested against pinned aiortc 1.15.0.
+
+Game fullscreen now toggles **borderless Minecraft fullscreen**, preserving the monitor mode. If Minecraft is already in exclusive fullscreen, first use the separate Minecraft F11 toggle to return to windowed mode, then Game fullscreen. Capture rebuilds after transient display errors instead of killing the RTP sender. The phone detects a stalled decoded-video counter and tries compatibility streaming after six seconds.
+
+Look movement uses a separate unordered, non-retransmitted channel, accumulates fractional movement, and batches input once per UI frame. Attack and Use buttons also accept swipe-look while held. Windows input bypasses mouse-message coalescing; Minecraft's own sensitivity still affects turning speed.
+
+## Low-latency streaming
 
 Update both the PC EXE and Android APK. Capture runs on its own thread so it cannot stall input or network handling; frames are captured on demand instead of queued. The app requests minimal WebRTC receive buffering where supported. Choose 60 FPS (VP8 preferred) or 30 FPS on the connection screen. These are targets, not guaranteed rates; software encoding speed, game load, resolution and Wi-Fi affect the result. Audio capture retains at most two pending chunks.
 
 The play status shows network round-trip time, decoded FPS, and measured WebRTC jitter-buffer delay. Ping alone is not screen-to-screen latency. If delay remains, report these values and the PC/phone models; lowering resolution or using 30 FPS may help a loaded PC. Compatibility mode uses a bounded two-frame window and off-thread JPEG encoding.
 
-The Mouse button switches between gameplay and desktop controls. Tap the displayed PC screen to position and click; use the bottom buttons for right-click and scrolling. A connected mouse supports click, right-click, drag and scroll. Open Game menu to release Minecraft's captured mouse when needed. Game fullscreen sends F11 to the active PC window. Fill phone screen stretches the entire desktop to the phone's aspect ratio without cropping; switch to Fit entire desktop in the menu to preserve its proportions.
+The Mouse button switches between gameplay and desktop controls. Tap the displayed PC screen to position and click; use the bottom buttons for right-click and scrolling. A connected mouse supports click, right-click, drag and scroll. Open Game menu to release Minecraft's captured mouse when needed. Game fullscreen toggles Minecraft window borders; the separate F11 toggle controls Minecraft’s exclusive fullscreen. Fill phone screen stretches the entire desktop to the phone's aspect ratio without cropping; switch to Fit entire desktop in the menu to preserve its proportions.
 
 ## Controls and safety
 

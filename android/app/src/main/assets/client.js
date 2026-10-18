@@ -1,9 +1,11 @@
 'use strict';
 const $=id=>document.getElementById(id);
+let lookChannel=null,lastVideoProgress=0;
 let pc=null, channel=null, heartbeat=null, statsTimer=null, lastStats=null, renderedFrames=0, lastFrameCount=0, statTime=0, networkMs=0, streamInfo='', sessionTimer=null, mode='idle', audio=null, audioNext=0, epoch=0;
 const status=text=>{$('status').textContent=text;};
 const signal=payload=>window.FarPlay.signal(JSON.stringify(payload));
 function send(payload){
+  if(payload.type==='move'&&lookChannel?.readyState==='open'){if(lookChannel.bufferedAmount<1024)lookChannel.send(JSON.stringify(payload));return;}
   if(mode==='compatibility')signal({type:'input',payload});
   else if(channel?.readyState==='open'){
     // Drop stale motion before it can queue behind a busy network; keep releases reliable.
@@ -14,7 +16,7 @@ function send(payload){
 function release(){send({type:'release'});resetControls();}
 function end(message='Disconnected. Tap Connect when you are ready.'){
   epoch++;release();clearInterval(statsTimer);statsTimer=null;lastStats=null;renderedFrames=0;lastFrameCount=0;streamInfo='';closeMenu();composing=false;typingBusy=false;window.FarPlay.setPlaying(false);clearInterval(heartbeat);clearTimeout(sessionTimer);heartbeat=null;mode='idle';
-  const previous=pc;pc=null;channel=null;previous?.close();
+  const previous=pc;pc=null;channel=null;lookChannel=null;previous?.close();
   window.FarPlay.disconnectPC();
   $('video').srcObject=null;$('session').hidden=true;$('setup').hidden=false;
   $('connect').disabled=false;$('badge').textContent='PAIRED';status(message);
@@ -22,7 +24,7 @@ function end(message='Disconnected. Tap Connect when you are ready.'){
 }
 function showSession(){
   clearTimeout(sessionTimer);if($('session').hidden)window.FarPlay.setPlaying(true);$('session').hidden=false;$('setup').hidden=true;
-  if(!statsTimer){statTime=performance.now();statsTimer=setInterval(updateStats,1000);}
+  if(!statsTimer){lastVideoProgress=performance.now();statTime=performance.now();statsTimer=setInterval(updateStats,1000);}
   $('video').hidden=mode==='compatibility';$('compat').hidden=mode!=='compatibility';
 }
 function sound(){
@@ -31,7 +33,7 @@ function sound(){
 }
 function compatibility(){
   if(mode==='idle'||mode==='compatibility'||mode==='switching')return;
-  mode='switching';const old=pc;pc=null;channel=null;old?.close();
+  mode='switching';const old=pc;pc=null;channel=null;lookChannel=null;old?.close();
   clearTimeout(sessionTimer);status('Trying direct compatibility mode…');
   signal({type:'compatibility'});
   sessionTimer=setTimeout(()=>end('Your PC could not start streaming. Check the PC host window.'),10000);
@@ -43,13 +45,15 @@ async function startStream(){
   const videoReceiver=connection.addTransceiver('video',{direction:'recvonly'});
   const audioReceiver=connection.addTransceiver('audio',{direction:'recvonly'});
   for(const transceiver of [videoReceiver,audioReceiver]){try{if('jitterBufferTarget' in transceiver.receiver)transceiver.receiver.jitterBufferTarget=0;}catch{}}
-  // 60 FPS uses VP8, avoiding H.264 level 3.1's 720p30 negotiation limit.
-  if(Number($('frame-rate').value)===60&&videoReceiver.setCodecPreferences){
+  // Prefer fast H.264 at <=720p30; retain VP8 for higher frame rates/resolutions.
+  if(videoReceiver.setCodecPreferences){
     const codecs=RTCRtpReceiver.getCapabilities('video')?.codecs||[];
-    const vp8=codecs.filter(c=>c.mimeType.toLowerCase()==='video/vp8');
-    if(vp8.length)videoReceiver.setCodecPreferences([...vp8,...codecs.filter(c=>c.mimeType.toLowerCase()!=='video/vp8')]);
+    const mime=Number($('frame-rate').value)===60||Number($('quality').value)>1280?'video/vp8':'video/h264';
+    const preferred=codecs.filter(c=>c.mimeType.toLowerCase()===mime);
+    if(preferred.length)videoReceiver.setCodecPreferences([...preferred,...codecs.filter(c=>c.mimeType.toLowerCase()!==mime)]);
   }
   channel=connection.createDataChannel('controls',{ordered:true});
+  lookChannel=connection.createDataChannel('look',{ordered:false,maxRetransmits:0});
   channel.onclose=()=>{if(pc===connection)compatibility();};
   const media=new MediaStream();$('video').srcObject=media;
   connection.ontrack=e=>{if(pc===connection){media.addTrack(e.track);$('video').play().catch(()=>{});}};
@@ -67,7 +71,7 @@ async function startStream(){
     connection.addEventListener('icegatheringstatechange',check);check();
   });
   if(epoch!==generation||pc!==connection)return;
-  signal({type:'offer',sdp:connection.localDescription.sdp,width:Number($('quality').value),fps:Number($('frame-rate').value)||60});
+  signal({type:'offer',sdp:connection.localDescription.sdp,width:Number($('quality').value),fps:Number($('frame-rate').value)||30});
 }
 async function packet(base64){
   if(mode!=='compatibility')return;
@@ -125,7 +129,10 @@ $('connect').onclick=()=>{
   sessionTimer=setTimeout(()=>end('PC unreachable. Check that FarPlay is open on your PC.'),15000);
 };
 // Touch ownership prevents one thumb releasing a key still held by another input.
-const keyOwners=new Map(), activePointers=new Map();
+const keyOwners=new Map(), activePointers=new Map(), actionPositions=new Map();
+let motionX=0,motionY=0,motionFrame=null;
+function flushLook(){if(motionFrame!==null)cancelAnimationFrame(motionFrame);motionFrame=null;const x=Math.trunc(motionX),y=Math.trunc(motionY);motionX-=x;motionY-=y;if(x||y)send({type:'move',x:Math.max(-300,Math.min(300,x)),y:Math.max(-300,Math.min(300,y))});}
+function moveLook(x,y){motionX+=x*prefs.sensitivity;motionY+=y*prefs.sensitivity;if(motionFrame===null)motionFrame=requestAnimationFrame(flushLook);}
 let physicalMouseButton=null;
 let joyPointer=null, lookPointer=null, lastX=0,lastY=0,lookTravel=0,lookStarted=0;
 let composing=false,typingBusy=false,composerKind='chat',draft='',cursorMode=false,toastTimer;
@@ -140,7 +147,7 @@ function hold(key,down,owner){
   if(before&&!owners.size)send({type:'key',key,down:false});
 }
 function resetControls(){
-  keyOwners.clear();activePointers.clear();physicalMouseButton=null;joyPointer=null;lookPointer=null;
+  keyOwners.clear();activePointers.clear();actionPositions.clear();physicalMouseButton=null;if(motionFrame!==null)cancelAnimationFrame(motionFrame);motionFrame=null;motionX=0;motionY=0;joyPointer=null;lookPointer=null;
   $('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');
   document.querySelectorAll('.held').forEach(e=>e.classList.remove('held'));
   document.querySelectorAll('[data-toggle]').forEach(e=>e.setAttribute('aria-pressed','false'));
@@ -154,7 +161,8 @@ $('leave').onclick=()=>end();$('sound').onclick=()=>{sound();toast('Sound enable
 $('pause-game').onclick=()=>{closeMenu();tapKey('escape');};
 function toggleMouse(){release();cursorMode=!cursorMode;for(const id of ['cursor-mode','mouse-toggle'])$(id).setAttribute('aria-pressed',String(cursorMode));$('mouse-toggle').textContent=cursorMode?'Play':'Mouse';$('session').classList.toggle('mouse-mode',cursorMode);$('remote-cursor').hidden=!cursorMode;$('mouse-actions').hidden=!cursorMode;closeMenu();toast(cursorMode?'Mouse mode · tap to click. Open Game menu to release Minecraft’s mouse.':'Play mode · swipe to look');}
 $('cursor-mode').onclick=$('mouse-toggle').onclick=toggleMouse;
-$('game-fullscreen').onclick=()=>{closeMenu();tapKey('f11');toast('Fullscreen toggled on PC · F11');};
+$('game-fullscreen').onclick=()=>{closeMenu();release();send({type:'game-fullscreen'});toast('Borderless fullscreen · select Minecraft on the PC first');};
+$('exclusive-fullscreen').onclick=()=>{closeMenu();tapKey('f11');toast('Minecraft F11 toggled · use this to leave exclusive fullscreen');};
 let fillScreen=true;
 $('session').classList.add('fill-screen');
 $('screen-fit').onclick=()=>{fillScreen=!fillScreen;$('session').classList.toggle('fill-screen',fillScreen);$('screen-fit').setAttribute('aria-pressed',String(fillScreen));$('screen-fit').textContent=fillScreen?'Fill phone screen':'Fit entire desktop';};
@@ -207,11 +215,12 @@ async function finishComposer(data,cancel){
 for(const button of document.querySelectorAll('[data-key],[data-button]')){
   button.onpointerdown=e=>{
     e.preventDefault();if(blocked()||activePointers.has(button))return;
-    activePointers.set(button,e.pointerId);button.setPointerCapture(e.pointerId);button.classList.add('held');
+    activePointers.set(button,e.pointerId);actionPositions.set(button,{x:e.clientX,y:e.clientY});button.setPointerCapture(e.pointerId);button.classList.add('held');
     if(button.dataset.key)hold(button.dataset.key,true,button);
     else send({type:'button',key:button.dataset.button,down:true});
   };
-  const up=e=>{if(activePointers.get(button)!==e.pointerId)return;activePointers.delete(button);button.classList.remove('held');
+  button.onpointermove=e=>{if(activePointers.get(button)!==e.pointerId||!button.dataset.button||cursorMode)return;const last=actionPositions.get(button);if(last)moveLook(e.clientX-last.x,e.clientY-last.y);actionPositions.set(button,{x:e.clientX,y:e.clientY});};
+  const up=e=>{if(activePointers.get(button)!==e.pointerId)return;activePointers.delete(button);actionPositions.delete(button);flushLook();button.classList.remove('held');
     if(button.dataset.key)hold(button.dataset.key,false,button);else send({type:'button',key:button.dataset.button,down:false});};
   button.onpointerup=up;button.onpointercancel=up;button.onlostpointercapture=up;
 }
@@ -236,8 +245,8 @@ $('joystick').onpointermove=e=>{if(e.pointerId===joyPointer)moveStick(e);};
 const stopStick=e=>{if(e.pointerId!==joyPointer)return;joyPointer=null;for(const key of ['w','a','s','d'])hold(key,false,'joystick');$('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');};
 $('joystick').onpointerup=stopStick;$('joystick').onpointercancel=stopStick;$('joystick').onlostpointercapture=stopStick;
 $('look').onpointerdown=e=>{if(blocked()||lookPointer!==null)return;if(cursorMode){pointerPosition(e);if(e.pointerType==='mouse'){physicalMouseButton=e.button===2?'right':'left';send({type:'button',key:physicalMouseButton,down:true});}}lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;lookTravel=0;lookStarted=performance.now();$('look').setPointerCapture(e.pointerId);};
-$('look').onpointermove=e=>{if(cursorMode&&!blocked()&&e.pointerType==='mouse'){pointerPosition(e);return;}if(e.pointerId!==lookPointer)return;const x=e.clientX-lastX,y=e.clientY-lastY;lookTravel+=Math.abs(x)+Math.abs(y);if(cursorMode)pointerPosition(e);else send({type:'move',x:x*prefs.sensitivity,y:y*prefs.sensitivity});lastX=e.clientX;lastY=e.clientY;};
-$('look').onpointerup=async e=>{if(e.pointerId!==lookPointer)return;lookPointer=null;if(physicalMouseButton){send({type:'button',key:physicalMouseButton,down:false});physicalMouseButton=null;return;}if(cursorMode&&lookTravel<8&&performance.now()-lookStarted<300){const gen=epoch;send({type:'button',key:'left',down:true});await delay(40);if(epoch===gen)send({type:'button',key:'left',down:false});}};
+$('look').onpointermove=e=>{if(cursorMode&&!blocked()&&e.pointerType==='mouse'){pointerPosition(e);return;}if(e.pointerId!==lookPointer)return;const x=e.clientX-lastX,y=e.clientY-lastY;lookTravel+=Math.abs(x)+Math.abs(y);if(cursorMode)pointerPosition(e);else moveLook(x,y);lastX=e.clientX;lastY=e.clientY;};
+$('look').onpointerup=async e=>{if(e.pointerId!==lookPointer)return;flushLook();lookPointer=null;if(physicalMouseButton){send({type:'button',key:physicalMouseButton,down:false});physicalMouseButton=null;return;}if(cursorMode&&lookTravel<8&&performance.now()-lookStarted<300){const gen=epoch;send({type:'button',key:'left',down:true});await delay(40);if(epoch===gen)send({type:'button',key:'left',down:false});}};
 $('look').onpointercancel=$('look').onlostpointercapture=()=>{lookPointer=null;if(physicalMouseButton){send({type:'button',key:physicalMouseButton,down:false});physicalMouseButton=null;}};
 window.addEventListener('blur',release);
 window.addEventListener('resize',release);
@@ -262,6 +271,7 @@ async function updateStats(){
  try{
   const report=await connection.getStats();if(gen!==epoch||connection!==pc)return;
   for(const item of report.values())if(item.type==='inbound-rtp'&&(item.kind==='video'||item.mediaType==='video')){
+   if(!lastStats||item.framesDecoded>lastStats.framesDecoded)lastVideoProgress=performance.now();
    if(lastStats&&item.timestamp>lastStats.timestamp){
     const count=item.framesDecoded-lastStats.framesDecoded;const fps=Math.round(count*1000/(item.timestamp-lastStats.timestamp));
     const emitted=item.jitterBufferEmittedCount-lastStats.jitterBufferEmittedCount;
@@ -271,5 +281,6 @@ async function updateStats(){
    lastStats=item;
   }
   renderStats();
+  if(mode==='rtc'&&performance.now()-lastVideoProgress>6000){toast('Video stalled · recovering stream');compatibility();}
  }catch{} // Older WebViews may omit individual statistics.
 }

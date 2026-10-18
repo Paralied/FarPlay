@@ -20,7 +20,7 @@ from direct_server import DirectServer
 from identity import Identity
 from router import Router, PORT
 
-VERSION = '0.2.2-low-latency'
+VERSION = '0.2.3-recovery'
 DATA = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'FarPlay'
 DATA.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler(DATA / 'host.log', maxBytes=2_000_000, backupCount=2)],

@@ -100,6 +100,10 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.05)
         self.assertIn(('key','w',False),self.events)
     async def test_direct_rtc_signaling(self):
+        await self.check_direct_rtc(60)
+    async def test_direct_rtc_fast_h264(self):
+        await self.check_direct_rtc(30)
+    async def check_direct_rtc(self,fps):
         ws=await self.connect();pc=RTCPeerConnection(RTCConfiguration(iceServers=[]))
         pc.addTransceiver('video',direction='recvonly');pc.addTransceiver('audio',direction='recvonly')
         dc=pc.createDataChannel('controls');done=asyncio.Event();tasks=[];received=set()
@@ -110,8 +114,12 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
                 if received=={'video','audio'}:done.set()
             tasks.append(asyncio.create_task(read()))
         try:
-            await pc.setLocalDescription(await pc.createOffer());await ws.send_json({'type':'offer','sdp':pc.localDescription.sdp,'width':1280,'fps':60})
-            answer=await ws.receive_json();await pc.setRemoteDescription(RTCSessionDescription(sdp=answer['sdp'],type='answer'))
+            await pc.setLocalDescription(await pc.createOffer());await ws.send_json({'type':'offer','sdp':pc.localDescription.sdp,'width':1280,'fps':fps})
+            answer=await ws.receive_json()
+            import re
+            payload=re.search(r'm=video[^\r\n]+',answer['sdp']).group().split()[3]
+            self.assertIn('a=rtpmap:'+payload+(' H264/' if fps==30 else ' VP8/'),answer['sdp'])
+            await pc.setRemoteDescription(RTCSessionDescription(sdp=answer['sdp'],type='answer'))
             await asyncio.wait_for(done.wait(),5);self.assertEqual(received,{'video','audio'})
         finally:
             await ws.close();await pc.close()

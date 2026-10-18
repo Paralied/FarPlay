@@ -66,7 +66,7 @@ class DirectServer:
         mode = 'idle'
         try:
             await ws.prepare(request)
-            await ws.send_json({'type': 'ready', 'version': '0.2.2', 'iceServers': []})
+            await ws.send_json({'type': 'ready', 'version': '0.2.3', 'iceServers': []})
             self.report('Phone connected securely')
 
             async def watch():

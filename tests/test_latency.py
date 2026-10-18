@@ -54,6 +54,42 @@ class LatencyTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(task,return_exceptions=True)
             self.assertTrue(await asyncio.to_thread(closed.wait,1))
 
+    async def test_display_change_recreates_capture_and_video_resumes(self):
+        instances=[]
+        class Shot:
+            width,height=320,180
+            def __array__(self,dtype=None,copy=None):return np.zeros((180,320,4),dtype=np.uint8)
+        class Capture:
+            monitors=[{},{}]
+            def __init__(self):self.index=len(instances);self.closed=False;instances.append(self)
+            def grab(self,monitor):
+                if self.index==0:raise OSError('display mode changed')
+                return Shot()
+            def close(self):self.closed=True
+        with patch('media.mss.mss',Capture):
+            track=DesktopVideo(width=320)
+            try:
+                with self.assertLogs(level='WARNING'):
+                    frame=await asyncio.wait_for(track.recv(),2)
+                self.assertEqual(frame.width,320)
+                self.assertEqual(len(instances),2)
+                self.assertTrue(instances[0].closed)
+            finally:track.stop()
+
+class EncoderTests(unittest.TestCase):
+    def test_fast_h264_emits_and_decodes_without_delayed_frames(self):
+        import av, fractions
+        from fast_video import FastH264Encoder
+        encoder=FastH264Encoder();decoder=av.CodecContext.create('h264','r')
+        for i in range(4):
+            frame=av.VideoFrame.from_ndarray(np.full((180,320,3),i*30,dtype=np.uint8),format='rgb24').reformat(format='yuv420p')
+            frame.pts=i*3000;frame.time_base=fractions.Fraction(1,90000)
+            nalus=list(encoder._encode_frame(frame, i==0))
+            self.assertTrue(nalus)
+            decoded=decoder.decode(av.Packet(b''.join(b'\x00\x00\x00\x01'+n for n in nalus)))
+            self.assertEqual(len(decoded),1)
+            self.assertEqual(decoded[0].width,320)
+
 class DesktopControlTests(unittest.TestCase):
     def test_pointer_scroll_fullscreen_validation(self):
         events=[];control=Controller(lambda *x:events.append(x))

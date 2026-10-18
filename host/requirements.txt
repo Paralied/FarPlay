@@ -1,4 +1,4 @@
-aiortc>=1.14,<2
+aiortc==1.15.0
 aiohttp>=3.12,<4
 mss>=10,<11
 numpy>=2,<3
