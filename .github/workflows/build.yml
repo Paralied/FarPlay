@@ -50,3 +50,38 @@ jobs:
           name: FarPlay-Android
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+  release:
+    name: Publish downloads
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FarPlay-Windows
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: FarPlay-Android
+          path: release
+      - name: Publish prototype release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: v0.1.0-build.${{ github.run_number }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          mv release/app-debug.apk release/FarPlay-Android.apk
+          cat > release-notes.md <<'NOTES'
+          Windows host and Android app prototype.
+
+          Download FarPlayHost.exe for Windows and FarPlay-Android.apk for Android.
+          The Windows package passes an automated startup check. Real-device streaming remains unverified.
+          A deployed FarPlay connection service and TURN relay are still required for remote play.
+          Android test builds may require uninstalling an older APK before installation.
+          NOTES
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" release/FarPlayHost.exe release/FarPlay-Android.apk --target "$RELEASE_COMMIT" --title "FarPlay $RELEASE_TAG (prototype)" --notes-file release-notes.md --prerelease
+          fi
