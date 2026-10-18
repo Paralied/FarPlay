@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+*.spec
+build/
+dist/
+.gradle/
+local.properties
+.env
+PAIRING-KEYS.txt
+turnserver.conf
+Caddyfile
+*.log

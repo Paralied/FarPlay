@@ -1,0 +1,9 @@
+.git
+**/__pycache__
+**/.venv
+**/.env
+**/PAIRING-KEYS.txt
+**/turnserver.conf
+host
+android
+tests

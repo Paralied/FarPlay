@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#090e18"><title>FarPlay</title><link rel="stylesheet" href="/assets/style.css"></head>
+<body>
+<main id="setup">
+  <div class="brand"><span class="mark">F</span>FarPlay <small>EARLY ACCESS · 0.1</small></div>
+  <section class="hero"><div class="eyebrow">YOUR PC, WITH YOU</div><h1>Take your games<br>off the desk.</h1><p>Your worlds. Your mods. Your machine.</p></section>
+  <section class="card"><div class="row"><div><div class="eyebrow">PERSONAL COMPUTER</div><h2>Connect to your PC</h2></div><span class="badge" id="badge">OFFLINE</span></div>
+  <label>Phone pairing key<input id="token" type="password" autocomplete="off" placeholder="Paste the key from service setup"></label>
+  <div class="row"><label>Stream quality<select id="quality"><option value="960">540p · Save data</option><option value="1280" selected>720p · Balanced</option><option value="1920">1080p · More detail</option></select></label><label class="check"><input type="checkbox" id="relay">Force relay<br><small>For connection testing</small></label></div>
+  <button id="connect" class="primary">Connect & play <span>↗</span></button><p id="status" role="status">Leave FarPlay open on your PC. Use Wi-Fi or mobile data.</p></section>
+  <div class="feature-row"><div><b>Minecraft Java</b><span>Touch controls built in</span></div><div><b>Your full desktop</b><span>Swipe, click, and type</span></div></div>
+  <p class="footnote">Prototype · 30 FPS target · PC must remain awake</p>
+</main>
+<section id="session" hidden>
+ <video id="video" autoplay playsinline></video>
+ <div id="look" aria-label="Swipe to move the mouse"></div>
+ <header class="toolbar"><b>FarPlay</b><span id="stats">Connecting…</span><button id="sound">Enable sound</button><button id="keyboard">Type</button><button id="full">Full screen</button><button id="leave">Disconnect</button></header>
+ <div class="movement"><button class="up" data-key="w">W</button><button class="left" data-key="a">A</button><button class="down" data-key="s">S</button><button class="right" data-key="d">D</button></div>
+ <div class="actions"><button data-button="left">Attack</button><button data-button="right">Use</button><button data-key="space">Jump</button><button data-key="shift">Sneak</button><button data-key="ctrl">Sprint</button><button data-key="e">Inventory</button><button data-key="t">Chat</button></div>
+ <div class="hotbar"><button data-key="escape">Esc</button><button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button data-key="enter">Enter</button></div>
+</section>
+<script src="/assets/client.js"></script></body></html>
