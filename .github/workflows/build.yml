@@ -17,6 +17,9 @@ jobs:
       - name: Build host
         shell: pwsh
         run: ./host/build.ps1
+      - name: Verify direct pairing and streaming
+        shell: pwsh
+        run: ./host/.venv/Scripts/python.exe -m unittest discover -s tests -v
       - name: Verify packaged host starts
         shell: pwsh
         run: |
@@ -70,16 +73,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: v0.1.0-build.${{ github.run_number }}
+          RELEASE_TAG: v0.2.0-build.${{ github.run_number }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           mv release/app-debug.apk release/FarPlay-Android.apk
           cat > release-notes.md <<'NOTES'
-          Windows host and Android app prototype.
+          Direct PC-hosted FarPlay. No hosted connection service, VPN, subscription, or external relay.
 
           Download FarPlayHost.exe for Windows and FarPlay-Android.apk for Android.
           The Windows package passes an automated startup check. Real-device streaming remains unverified.
-          A deployed FarPlay connection service and TURN relay are still required for remote play.
+          Open the PC EXE, choose Pair my phone, scan its QR code in the Android app, then tap Connect.
+          Automatic router mapping is attempted. If the router blocks it, see Network setup in the PC app. CGNAT can still prevent remote access.
+          Direct WebRTC streaming falls back to direct TCP compatibility mode when needed. Real-device gaming performance is not yet verified.
           Android test builds may require uninstalling an older APK before installation.
           NOTES
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then

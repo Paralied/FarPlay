@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / 'host'))
 os.environ['LOCALAPPDATA'] = tempfile.mkdtemp(prefix='farplay-test-')
 events = []
 sys.modules['windows_input'] = types.SimpleNamespace(backend=lambda *args: events.append(args))
-import main as host_module
+import legacy_host as host_module
 
 class Stream(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

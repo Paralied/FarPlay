@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#090e18"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src blob:; connect-src 'none'; frame-src 'none'; object-src 'none'"><title>FarPlay</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<main id="setup">
+  <div class="brand"><span class="mark">F</span>FarPlay <small>DIRECT · 0.2</small></div>
+  <section class="hero"><div class="eyebrow">YOUR PC, WITH YOU</div><h1>Take your games<br>off the desk.</h1><p>Your worlds. Your mods. Your machine.</p></section>
+  <section class="card"><div class="row"><div><div class="eyebrow">PERSONAL COMPUTER</div><h2 id="pc-name">My PC</h2></div><span class="badge" id="badge">OFFLINE</span></div>
+  <div id="pairing"><p>Open FarPlay on your PC and choose <b>Pair my phone</b>.</p><button id="scan" class="primary">Scan PC pairing code</button><label>Or paste the pairing code<input id="pair-code" type="password" autocomplete="off" placeholder="farplay:…"></label><button id="pair-paste">Pair this PC</button></div>
+  <div id="paired-options" hidden><p>Paired securely. Your PC hosts the connection.</p><label>Stream quality<select id="quality"><option value="960">540p · Save data</option><option value="1280" selected>720p · Balanced</option><option value="1920">1080p · More detail</option></select></label><button id="forget">Forget this PC</button></div>
+  <button id="connect" class="primary" hidden>Connect & play <span>↗</span></button><p id="status" role="status">Leave FarPlay open on your PC. Use Wi-Fi or mobile data.</p></section>
+  <div class="feature-row"><div><b>Minecraft Java</b><span>Touch controls built in</span></div><div><b>Your full desktop</b><span>Swipe, click, and type</span></div></div>
+  <p class="footnote">Direct WebRTC · Automatic TCP compatibility mode · Keep the PC app open</p>
+</main>
+<section id="session" hidden>
+ <video id="video" autoplay playsinline></video><canvas id="compat" hidden></canvas>
+ <div id="look" aria-label="Swipe to move the mouse"></div>
+ <header class="toolbar"><b>FarPlay</b><span id="stats">Connecting…</span><button id="sound">Enable sound</button><button id="keyboard">Type</button><button id="full">Full screen</button><button id="leave">Disconnect</button></header>
+ <div class="movement"><button class="up" data-key="w">W</button><button class="left" data-key="a">A</button><button class="down" data-key="s">S</button><button class="right" data-key="d">D</button></div>
+ <div class="actions"><button data-button="left">Attack</button><button data-button="right">Use</button><button data-key="space">Jump</button><button data-key="shift">Sneak</button><button data-key="ctrl">Sprint</button><button data-key="e">Inventory</button><button data-key="t">Chat</button></div>
+ <div class="hotbar"><button data-key="escape">Esc</button><button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button><button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button data-key="enter">Enter</button></div>
+</section>
+<script src="/client.js"></script></body></html>
