@@ -75,12 +75,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: v0.2.3-build.${{ github.run_number }}
+          RELEASE_TAG: v0.2.4-build.${{ github.run_number }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           mv release/app-debug.apk release/FarPlay-Android.apk
           cat > release-notes.md <<'NOTES'
-          FarPlay fixes: explicit in-app QR camera with permission handling, borderless Minecraft fullscreen, capture recovery after display changes, fast H.264 at 540p30 by default, and smoother swipe-look input (including while holding attack/use).
+          FarPlay remote setup update: UPnP + NAT-PMP, guided router/firewall setup, authenticated internet-address syncing, clear mobile-data errors, and clean F11/windowed exit from FarPlay borderless mode.
+          Update BOTH packages. On the PC choose Remote access setup > Enable remote access, connect once on home Wi-Fi to sync the address, then disconnect and test with Wi-Fi off.
+          Direct access still depends on router and ISP support; shared/private WAN addresses may require an ISP or upstream-router change. No relay, VPN, or hosted service is installed.
 
           Download FarPlayHost.exe for Windows and FarPlay-Android.apk for Android.
           The Windows package passes an automated startup check. Real-device streaming remains unverified.

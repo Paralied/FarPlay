@@ -18,6 +18,7 @@ class Host:
 
     async def disconnect(self):
         self.controls.release()
+        self.controls.backend('windowed', None, False)
         pc, self.pc = self.pc, None
         for track in self.tracks:
             track.stop()

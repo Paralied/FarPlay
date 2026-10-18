@@ -42,9 +42,9 @@ class Controller:
             x, y = message.get('x'), message.get('y')
             if all(type(v) in (int, float) and math.isfinite(v) for v in (x, y)):
                 self.backend('move', (max(-300, min(300, int(x))), max(-300, min(300, int(y)))), False)
-        elif kind == 'game-fullscreen':
+        elif kind in ('game-fullscreen', 'windowed'):
             self.release()
-            self.backend('game-fullscreen', None, False)
+            self.backend(kind, None, False)
         elif kind == 'pointer':
             x, y = message.get('x'), message.get('y')
             if all(type(v) in (int, float) and math.isfinite(v) and 0 <= v <= 1 for v in (x, y)):

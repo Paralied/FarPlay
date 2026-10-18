@@ -107,7 +107,9 @@ public class MainActivity extends Activity {
     private void error(String message) { emit("error",message); }
     private synchronized void sendSaved() {
         JSONObject info=new JSONObject();
-        try { info.put("paired",saved!=null); info.put("name",saved==null?"My PC":saved.optString("name","My PC")); } catch(JSONException ignored){}
+        try { info.put("paired",saved!=null);
+            boolean remote=false;if(saved!=null){JSONArray urls=saved.getJSONArray("urls");for(int i=0;i<urls.length();i++)if(!localUrl(urls.getString(i)))remote=true;}
+            info.put("remote",remote); info.put("name",saved==null?"My PC":saved.optString("name","My PC")); } catch(JSONException ignored){}
         emit("saved",info);
         try{emit("controls",new JSONObject(getPreferences(MODE_PRIVATE).getString("controls","{}")));}catch(JSONException ignored){}
     }
@@ -157,13 +159,36 @@ public class MainActivity extends Activity {
         if(code==null||!code.startsWith("farplay:")||code.length()>4096)throw new Exception("Scan a FarPlay pairing QR code from your PC.");
         JSONObject p=new JSONObject(new String(Base64.decode(code.substring(8),Base64.URL_SAFE|Base64.NO_WRAP|Base64.NO_PADDING),StandardCharsets.UTF_8));
         if(p.getInt("v")!=2||!p.getString("pin").matches("[a-f0-9]{64}")||!p.getString("invite").matches("[A-Za-z0-9_-]{43}"))throw new Exception("Invalid pairing code.");
-        JSONArray urls=p.getJSONArray("urls");if(urls.length()<1||urls.length()>2)throw new Exception("Invalid PC address.");
+        validateUrls(p.getJSONArray("urls"));
+        return p;
+    }
+    private void validateUrls(JSONArray urls)throws Exception{
+        if(urls.length()<1||urls.length()>2)throw new Exception("Invalid PC address.");
         for(int i=0;i<urls.length();i++){
             Uri u=Uri.parse(urls.getString(i));String host=u.getHost();
-            if(!"https".equals(u.getScheme())||u.getPort()!=47990||host==null||!host.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")||u.getUserInfo()!=null||u.getQuery()!=null||u.getFragment()!=null||!(u.getPath()==null||u.getPath().isEmpty()))throw new Exception("Invalid PC address.");
+            if(!"https".equals(u.getScheme())||(u.getPort()<1||u.getPort()>65535)||host==null||!host.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")||u.getUserInfo()!=null||u.getQuery()!=null||u.getFragment()!=null||!(u.getPath()==null||u.getPath().isEmpty()))throw new Exception("Invalid PC address.");
             for(String n:host.split("\\."))if(Integer.parseInt(n)>255)throw new Exception("Invalid PC address.");
         }
-        return p;
+    }
+    private boolean localUrl(String url){
+        try{
+            byte[] address=java.net.InetAddress.getByName(Uri.parse(url).getHost()).getAddress();
+            int a=address[0]&255,b=address[1]&255;
+            return a==10||a==127||a==0||(a==192&&b==168)||(a==172&&b>=16&&b<=31)||(a==169&&b==254)||(a==100&&b>=64&&b<=127)||a>=224;
+        }catch(Exception e){return true;}
+    }
+    private boolean onCellular(){
+        android.net.ConnectivityManager manager=(android.net.ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+        android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(manager.getActiveNetwork());
+        return caps!=null&&caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)&&!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI);
+    }
+    private synchronized void updateEndpoints(JSONArray urls,int gen){
+        if(gen!=generation.get()||saved==null||urls==null)return;
+        try{
+            validateUrls(urls);
+            if(saved.getJSONArray("urls").toString().equals(urls.toString()))return;
+            JSONObject replacement=new JSONObject(saved.toString());replacement.put("urls",urls);save(replacement);sendSaved();
+        }catch(Exception e){emit("notice","Could not save updated PC addresses. Reconnect on home Wi-Fi to retry.");}
     }
     private void pair(String code){
         if(pairing)return;pairing=true;
@@ -194,16 +219,24 @@ public class MainActivity extends Activity {
     }
     private void connect(){
         disconnect();final JSONObject p;
-        synchronized(this){p=saved;}
+        synchronized(this){try{p=saved==null?null:new JSONObject(saved.toString());}catch(JSONException e){error("Saved pairing could not be read.");return;}}
         if(p==null){error("Pair your PC first.");return;}
         final int gen=generation.get();
-        try { networkClient=client(p.getString("pin"));tryEndpoint(p,0,gen); }catch(Exception e){error("Saved pairing could not be loaded. Pair your PC again.");}
+        try {
+            JSONArray urls=p.getJSONArray("urls");validateUrls(urls);
+            if(onCellular()){
+                JSONArray internet=new JSONArray();for(int i=0;i<urls.length();i++)if(!localUrl(urls.getString(i)))internet.put(urls.getString(i));
+                if(internet.length()==0){error("This PC only has a home Wi-Fi address saved. On the PC open Remote access setup, then connect once on home Wi-Fi to sync its internet address.");return;}
+                p.put("urls",internet);
+            }
+            networkClient=client(p.getString("pin"));tryEndpoint(p,0,gen);
+        }catch(Exception e){error("Saved pairing could not be loaded. Pair your PC again.");}
     }
     private void tryEndpoint(JSONObject p,int index,int gen){
         if(gen!=generation.get())return;
         try{
             JSONArray urls=p.getJSONArray("urls");
-            if(index>=urls.length()){error("PC unreachable. Leave FarPlay open. If home Wi-Fi works but mobile data does not, open Network setup on the PC.");return;}
+            if(index>=urls.length()){error("PC unreachable. Check Remote access setup on the PC: allow Windows Firewall and enable router mapping. If its internet address changed, reconnect once on home Wi-Fi. Shared ISP addresses may block direct access.");return;}
             Request r=new Request.Builder().url(urls.getString(index)+"/ws").header("Authorization","Bearer "+p.getString("token")).build();
             networkClient.newWebSocket(r,new WebSocketListener(){
                 private boolean opened=false;
@@ -212,7 +245,10 @@ public class MainActivity extends Activity {
                 }
                 @Override public void onMessage(WebSocket ws,String text){
                     if(gen!=generation.get())return;
-                    try{emit("message",new JSONObject(text));}catch(JSONException e){ws.cancel();error("Invalid PC response.");}
+                    try{JSONObject message=new JSONObject(text);
+                        if("ready".equals(message.optString("type"))||"endpoints".equals(message.optString("type")))updateEndpoints(message.optJSONArray("urls"),gen);
+                        emit("message",message);
+                    }catch(JSONException e){ws.cancel();error("Invalid PC response.");}
                 }
                 @Override public void onMessage(WebSocket ws,ByteString bytes){
                     if(gen!=generation.get()||bytes.size()<2||bytes.size()>2000000)return;

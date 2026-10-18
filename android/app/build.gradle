@@ -6,8 +6,8 @@ android {
         applicationId 'com.paralied.farplay'
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName '0.2.3-recovery'
+        versionCode 6
+        versionName '0.2.4-remote'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

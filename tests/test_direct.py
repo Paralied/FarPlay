@@ -125,6 +125,17 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             await ws.close();await pc.close()
             for t in tasks:t.cancel()
             await asyncio.gather(*tasks,return_exceptions=True)
+    async def test_address_updates_over_authenticated_connection(self):
+        self.direct.endpoint_provider=lambda:['https://192.168.0.13:47990']
+        ws=await self.connect()
+        updated=['https://192.168.0.13:47990','https://8.8.4.4:48000']
+        self.direct.endpoint_provider=lambda:updated
+        await ws.send_json({'type':'ping','at':7})
+        self.assertEqual((await ws.receive_json())['type'],'pong')
+        update=await ws.receive_json()
+        self.assertEqual(update,{'type':'endpoints','urls':updated})
+        self.assertNotIn(self.token,json.dumps(update))
+        await ws.close()
     async def test_revoke(self):
         self.identity.revoke()
         with self.assertRaises(WSServerHandshakeError) as result:await self.connect()

@@ -25,7 +25,13 @@ def backend(kind, value, down):
     if kind == 'game-fullscreen':
         from window_mode import toggle_game_window
         toggle_game_window()
+    elif kind == 'windowed':
+        from window_mode import restore_all
+        restore_all()
     elif kind == 'key':
+        if value == 'f11' and down:
+            from window_mode import restore_game_window
+            if restore_game_window():return
         emit(INPUT(type=1, u=UNION(ki=KEYBDINPUT(wScan=KEYS[value], dwFlags=0x0008 | (0 if down else 0x0002)))))
     elif kind == 'text':
         raw = value.encode('utf-16-le')

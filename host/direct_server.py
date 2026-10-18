@@ -13,9 +13,10 @@ from streaming import Host
 
 
 class DirectServer:
-    def __init__(self, identity, router, report, host_factory=Host, video_factory=DesktopVideo, audio_factory=DesktopAudio):
+    def __init__(self, identity, router, report, host_factory=Host, video_factory=DesktopVideo, audio_factory=DesktopAudio, endpoint_provider=None):
         self.identity, self.router, self.report = identity, router, report
         self.host_factory, self.video_factory, self.audio_factory = host_factory, video_factory, audio_factory
+        self.endpoint_provider = endpoint_provider or (lambda: [])
         self.ws = None
         self.attempts = []
         self.app = web.Application(client_max_size=65536)
@@ -64,9 +65,10 @@ class DirectServer:
         frame_ack.put_nowait(True)
         last_ping = time.monotonic()
         mode = 'idle'
+        last_urls = self.endpoint_provider()
         try:
             await ws.prepare(request)
-            await ws.send_json({'type': 'ready', 'version': '0.2.3', 'iceServers': []})
+            await ws.send_json({'type': 'ready', 'version': '0.2.4', 'iceServers': [], 'urls': self.endpoint_provider()})
             self.report('Phone connected securely')
 
             async def watch():
@@ -134,6 +136,10 @@ class DirectServer:
                         last_ping = now
                         host.controls.handle({'type': 'ping'})
                         await ws.send_json({'type': 'pong', 'at': data.get('at')})
+                        current_urls = self.endpoint_provider()
+                        if current_urls != last_urls:
+                            last_urls = current_urls
+                            await ws.send_json({'type': 'endpoints', 'urls': current_urls})
                     elif kind == 'offer' and mode == 'idle':
                         if not isinstance(data.get('sdp'), str) or len(data['sdp']) > 60000:
                             raise ValueError('Invalid offer')

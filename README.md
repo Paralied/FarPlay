@@ -15,6 +15,18 @@ Download the latest **0.2** EXE and APK from [Releases](https://github.com/Paral
 
 If Android refuses to install over an earlier test build, uninstall that build first. This removes its old pairing. CI debug builds are not yet distributed with a permanent production signing key.
 
+## Remote access setup (0.2.4)
+
+On the PC choose **Remote access setup → Enable remote access** and approve the Windows firewall prompt. FarPlay tries UPnP, then NAT-PMP on the local default router. The panel shows the internet address, mapping method, and any detected private/shared router WAN address. A configured mapping is not an external reachability test.
+
+Connect the phone once on home Wi-Fi so it saves the PC's latest internet address without pairing again. Disconnect, turn Wi-Fi off, then tap Connect. On cellular, the phone skips private/home-only addresses and explains when no internet address was saved. New addresses are accepted only from the authenticated, certificate-pinned PC connection; the token and certificate pin remain unchanged.
+
+If automatic setup is unavailable, use Open router settings to enable UPnP/NAT-PMP, or manually forward TCP 47990 and enter the public IPv4 address. CGNAT/double NAT still needs an ISP/upstream router change; FarPlay does not install a hosted relay or VPN. The app cannot learn a changed public address while disconnected away from home without an external discovery service.
+
+NAT-PMP leases are renewed at half their granted lifetime (at most 20 minutes), and deleted on normal host shutdown. A router-assigned external port is synced to the phone. These router operations have simulated protocol tests; actual router compatibility and mobile-data reachability must be tested on the user's network.
+
+F11 while FarPlay owns Minecraft's borderless mode restores the saved window once, swallowing that key pair so Minecraft does not immediately enter exclusive fullscreen. Normal F11 behavior is untouched outside FarPlay-managed borderless mode. The phone also has Exit FarPlay fullscreen; disconnect restores the window.
+
 ## Network behavior
 
 - The PC listens on **TCP 47990** for TLS-encrypted pairing, signaling, and compatibility streaming.
@@ -24,7 +36,7 @@ If Android refuses to install over an earlier test build, uninstall that build f
 - If the WebRTC path does not connect, the phone automatically tries **direct TCP compatibility mode over the same PC connection**. This is not a cloud relay. It sends 960-pixel-wide JPEG frames (up to 30 FPS, with at most two unacknowledged frames) and PCM speaker audio. It uses more bandwidth and can have more latency than WebRTC.
 - If UPnP is unavailable, manually forward **TCP 47990** to the PC and enter the public IPv4 address in **Network setup**, then pair again. Compatibility mode works through that one forwarded port if the connection is reachable.
 - A non-public router WAN address can indicate double NAT or CGNAT. FarPlay reports this rather than claiming that remote access is ready. A manually configured router/ISP change can still be necessary; the app cannot bypass CGNAT without an external route.
-- This version supports IPv4 pairing. If your public address changes, the saved phone address needs updating by pairing again. There is no external dynamic-address directory.
+- This version supports IPv4 pairing. Connected phones automatically save refreshed internet addresses over the authenticated connection. If the address changes while the phone is away and disconnected, reconnect on home Wi-Fi to sync it. There is no external dynamic-address directory.
 - The PC app prevents automatic Windows sleep while hosting; the PC still needs to stay powered on, unlocked, online, and running the host. Closing or stopping the host disconnects phones.
 
 ## Scanner, fullscreen and responsiveness fixes (0.2.3)

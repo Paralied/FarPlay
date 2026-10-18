@@ -98,12 +98,14 @@ async function packet(base64){
 }
 window.onNative=async(type,data)=>{
   try{
-    if(type==='controls'){applyPreferences(data);}
+    if(type==='notice'){status(data);}
+    else if(type==='controls'){applyPreferences(data);}
     else if(type==='composer-send'){await finishComposer(data,false);}
     else if(type==='composer-cancel'){await finishComposer(data,true);}
     else if(type==='back'){if(!$('settings-layer').hidden)closeMenu();else if(!$('session').hidden)openMenu();}
     else if(type==='saved'){
       $('pairing').hidden=data.paired;$('paired-options').hidden=!data.paired;$('connect').hidden=!data.paired;
+      $('remote-status').textContent=data.remote?'Internet address saved · ready to test on mobile data.':'Home Wi-Fi only · enable Remote access setup on your PC, then reconnect here to sync.';
       $('pc-name').textContent=data.name;$('badge').textContent=data.paired?'PAIRED':'NOT PAIRED';
     }else if(type==='paired'){$('pair-code').value='';status(data);}
     else if(type==='error'||type==='closed'){end(data);}
@@ -162,6 +164,7 @@ $('pause-game').onclick=()=>{closeMenu();tapKey('escape');};
 function toggleMouse(){release();cursorMode=!cursorMode;for(const id of ['cursor-mode','mouse-toggle'])$(id).setAttribute('aria-pressed',String(cursorMode));$('mouse-toggle').textContent=cursorMode?'Play':'Mouse';$('session').classList.toggle('mouse-mode',cursorMode);$('remote-cursor').hidden=!cursorMode;$('mouse-actions').hidden=!cursorMode;closeMenu();toast(cursorMode?'Mouse mode · tap to click. Open Game menu to release Minecraft’s mouse.':'Play mode · swipe to look');}
 $('cursor-mode').onclick=$('mouse-toggle').onclick=toggleMouse;
 $('game-fullscreen').onclick=()=>{closeMenu();release();send({type:'game-fullscreen'});toast('Borderless fullscreen · select Minecraft on the PC first');};
+$('exit-fullscreen').onclick=()=>{closeMenu();release();send({type:'windowed'});toast('Restored Minecraft window');};
 $('exclusive-fullscreen').onclick=()=>{closeMenu();tapKey('f11');toast('Minecraft F11 toggled · use this to leave exclusive fullscreen');};
 let fillScreen=true;
 $('session').classList.add('fill-screen');
