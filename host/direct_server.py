@@ -58,13 +58,15 @@ class DirectServer:
         compat_tasks = []
         tracks = []
         watchdog = None
-        frame_ack = asyncio.Event()
-        frame_ack.set()
+        # A bounded two-frame window overlaps delivery with capture without a backlog.
+        frame_ack = asyncio.Queue(maxsize=2)
+        frame_ack.put_nowait(True)
+        frame_ack.put_nowait(True)
         last_ping = time.monotonic()
         mode = 'idle'
         try:
             await ws.prepare(request)
-            await ws.send_json({'type': 'ready', 'version': '0.2.0', 'iceServers': []})
+            await ws.send_json({'type': 'ready', 'version': '0.2.2', 'iceServers': []})
             self.report('Phone connected securely')
 
             async def watch():
@@ -77,16 +79,18 @@ class DirectServer:
             watchdog = asyncio.create_task(watch())
 
             async def video_loop():
-                track = self.video_factory(width=960, fps=20)
+                track = self.video_factory(width=960, fps=30)
                 tracks.append(track)
                 while not ws.closed:
-                    # At most one JPEG queued; old frames cannot build up on mobile data.
-                    await asyncio.wait_for(frame_ack.wait(), 5)
-                    frame_ack.clear()
+                    # Never more than two unacknowledged frames in transit.
+                    await asyncio.wait_for(frame_ack.get(), 5)
                     frame = await track.recv()
-                    output = io.BytesIO()
-                    Image.fromarray(frame.to_ndarray(format='rgb24')).save(output, format='JPEG', quality=60)
-                    await asyncio.wait_for(ws.send_bytes(b'\x01' + output.getvalue()), 2)
+                    def jpeg():
+                        output = io.BytesIO()
+                        Image.fromarray(frame.to_ndarray(format='rgb24')).save(output, format='JPEG', quality=60)
+                        return b'\x01' + output.getvalue()
+                    packet = await asyncio.to_thread(jpeg)
+                    await asyncio.wait_for(ws.send_bytes(packet), 2)
 
             async def audio_loop():
                 track = self.audio_factory(self.report)
@@ -143,7 +147,8 @@ class DirectServer:
                         self.report('Streaming directly · compatibility mode')
                         compat_tasks = [asyncio.create_task(guarded(video_loop())), asyncio.create_task(guarded(audio_loop()))]
                     elif kind == 'frame-ack':
-                        frame_ack.set()
+                        if not frame_ack.full():
+                            frame_ack.put_nowait(True)
                     elif kind == 'input' and mode == 'compatibility':
                         host.controls.handle(data.get('payload'))
                     elif kind == 'stop':

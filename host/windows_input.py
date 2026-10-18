@@ -30,6 +30,25 @@ def backend(kind, value, down):
             unit = int.from_bytes(raw[i:i+2], 'little')
             for flags in (0x0004, 0x0004 | 0x0002):
                 emit(INPUT(type=1, u=UNION(ki=KEYBDINPUT(wScan=unit, dwFlags=flags))))
+    elif kind == 'pointer':
+        # The captured primary monitor starts at (0, 0), even with monitors to its left.
+        # Use physical pixels like MSS, including on Windows display scaling.
+        awareness = ctypes.windll.user32.SetThreadDpiAwarenessContext
+        awareness.argtypes = [ctypes.c_void_p]
+        awareness.restype = ctypes.c_void_p
+        previous = awareness(ctypes.c_void_p(-4))
+        try:
+            metrics = ctypes.windll.user32.GetSystemMetrics
+            x, y = value[0] * (metrics(0)-1), value[1] * (metrics(1)-1)
+            vx, vy, vw, vh = metrics(76), metrics(77), metrics(78), metrics(79)
+        finally:
+            if previous:
+                awareness(previous)
+        dx = round((x-vx)*65535/max(1,vw-1))
+        dy = round((y-vy)*65535/max(1,vh-1))
+        emit(INPUT(type=0, u=UNION(mi=MOUSEINPUT(dx=dx, dy=dy, dwFlags=0x0001|0x8000|0x4000))))
+    elif kind == 'scroll':
+        emit(INPUT(type=0, u=UNION(mi=MOUSEINPUT(mouseData=(value*120)&0xffffffff, dwFlags=0x0800))))
     elif kind == 'move':
         emit(INPUT(type=0, u=UNION(mi=MOUSEINPUT(dx=value[0], dy=value[1], dwFlags=0x0001))))
     elif kind == 'button':

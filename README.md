@@ -21,11 +21,19 @@ If Android refuses to install over an earlier test build, uninstall that build f
 - FarPlay attempts a one-hour UPnP router mapping and renews it while running. It removes its own mappings when stopped normally. An expired lease also removes them after a crash.
 - The app reads your public IPv4 address from your router; it does not contact a public IP lookup service.
 - The first stream attempt is direct WebRTC, with no STUN/TURN servers configured. Where UPnP is available, the host maps the local UDP media ports and advertises the mapped candidates.
-- If the WebRTC path does not connect, the phone automatically tries **direct TCP compatibility mode over the same PC connection**. This is not a cloud relay. It sends 960-pixel-wide JPEG frames (up to 20 FPS, limited by round-trip delay) and PCM speaker audio. It uses more bandwidth and can have more latency than WebRTC.
+- If the WebRTC path does not connect, the phone automatically tries **direct TCP compatibility mode over the same PC connection**. This is not a cloud relay. It sends 960-pixel-wide JPEG frames (up to 30 FPS, with at most two unacknowledged frames) and PCM speaker audio. It uses more bandwidth and can have more latency than WebRTC.
 - If UPnP is unavailable, manually forward **TCP 47990** to the PC and enter the public IPv4 address in **Network setup**, then pair again. Compatibility mode works through that one forwarded port if the connection is reachable.
 - A non-public router WAN address can indicate double NAT or CGNAT. FarPlay reports this rather than claiming that remote access is ready. A manually configured router/ISP change can still be necessary; the app cannot bypass CGNAT without an external route.
 - This version supports IPv4 pairing. If your public address changes, the saved phone address needs updating by pairing again. There is no external dynamic-address directory.
 - The PC app prevents automatic Windows sleep while hosting; the PC still needs to stay powered on, unlocked, online, and running the host. Closing or stopping the host disconnects phones.
+
+## Low-latency update (0.2.2)
+
+Update both the PC EXE and Android APK. Capture runs on its own thread so it cannot stall input or network handling; frames are captured on demand instead of queued. The app requests minimal WebRTC receive buffering where supported. Choose 60 FPS (VP8 preferred) or 30 FPS on the connection screen. These are targets, not guaranteed rates; software encoding speed, game load, resolution and Wi-Fi affect the result. Audio capture retains at most two pending chunks.
+
+The play status shows network round-trip time, decoded FPS, and measured WebRTC jitter-buffer delay. Ping alone is not screen-to-screen latency. If delay remains, report these values and the PC/phone models; lowering resolution or using 30 FPS may help a loaded PC. Compatibility mode uses a bounded two-frame window and off-thread JPEG encoding.
+
+The Mouse button switches between gameplay and desktop controls. Tap the displayed PC screen to position and click; use the bottom buttons for right-click and scrolling. A connected mouse supports click, right-click, drag and scroll. Open Game menu to release Minecraft's captured mouse when needed. Game fullscreen sends F11 to the active PC window. Fill phone screen stretches the entire desktop to the phone's aspect ratio without cropping; switch to Fit entire desktop in the menu to preserve its proportions.
 
 ## Controls and safety
 

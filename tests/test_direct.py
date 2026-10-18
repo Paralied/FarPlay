@@ -110,7 +110,7 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
                 if received=={'video','audio'}:done.set()
             tasks.append(asyncio.create_task(read()))
         try:
-            await pc.setLocalDescription(await pc.createOffer());await ws.send_json({'type':'offer','sdp':pc.localDescription.sdp,'width':1280})
+            await pc.setLocalDescription(await pc.createOffer());await ws.send_json({'type':'offer','sdp':pc.localDescription.sdp,'width':1280,'fps':60})
             answer=await ws.receive_json();await pc.setRemoteDescription(RTCSessionDescription(sdp=answer['sdp'],type='answer'))
             await asyncio.wait_for(done.wait(),5);self.assertEqual(received,{'video','audio'})
         finally:

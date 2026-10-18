@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from aiortc import RTCPeerConnection, RTCConfiguration, RTCIceServer, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCConfiguration, RTCIceServer, RTCSessionDescription, RTCRtpSender
 from control import Controller
 from media import DesktopAudio, DesktopVideo
 
@@ -53,11 +53,20 @@ class Host:
             self.report('Stream: ' + pc.connectionState)
             if pc.connectionState in ('failed', 'closed') and self.pc is pc:
                 await self.disconnect()
-        self.tracks = [DesktopVideo(width=width), DesktopAudio(self.report)]
+        fps = payload.get('fps', 30)
+        if fps not in (30, 60):
+            fps = 30
+        self.tracks = [DesktopVideo(width=width, fps=fps), DesktopAudio(self.report)]
         try:
             await pc.setRemoteDescription(RTCSessionDescription(sdp=payload['sdp'], type='offer'))
             for track in self.tracks:
                 pc.addTrack(track)
+            if fps == 60:
+                codecs = RTCRtpSender.getCapabilities('video').codecs
+                vp8 = [c for c in codecs if c.mimeType.lower() == 'video/vp8']
+                for transceiver in pc.getTransceivers():
+                    if transceiver.kind == 'video' and vp8:
+                        transceiver.setCodecPreferences(vp8 + [c for c in codecs if c not in vp8])
             await pc.setLocalDescription(await pc.createAnswer())
             await ws.send_json({'type': 'answer', 'sdp': pc.localDescription.sdp})
         except Exception:

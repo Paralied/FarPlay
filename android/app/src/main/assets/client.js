@@ -1,15 +1,19 @@
 'use strict';
 const $=id=>document.getElementById(id);
-let pc=null, channel=null, heartbeat=null, sessionTimer=null, mode='idle', audio=null, audioNext=0, epoch=0;
+let pc=null, channel=null, heartbeat=null, statsTimer=null, lastStats=null, renderedFrames=0, lastFrameCount=0, statTime=0, networkMs=0, streamInfo='', sessionTimer=null, mode='idle', audio=null, audioNext=0, epoch=0;
 const status=text=>{$('status').textContent=text;};
 const signal=payload=>window.FarPlay.signal(JSON.stringify(payload));
 function send(payload){
   if(mode==='compatibility')signal({type:'input',payload});
-  else if(channel?.readyState==='open'&&channel.bufferedAmount<16384)channel.send(JSON.stringify(payload));
+  else if(channel?.readyState==='open'){
+    // Drop stale motion before it can queue behind a busy network; keep releases reliable.
+    if(['move','pointer'].includes(payload.type)&&channel.bufferedAmount>1024)return;
+    if(channel.bufferedAmount<16384||payload.type==='release'||payload.down===false)channel.send(JSON.stringify(payload));
+  }
 }
 function release(){send({type:'release'});resetControls();}
 function end(message='Disconnected. Tap Connect when you are ready.'){
-  epoch++;release();closeMenu();composing=false;typingBusy=false;window.FarPlay.setPlaying(false);clearInterval(heartbeat);clearTimeout(sessionTimer);heartbeat=null;mode='idle';
+  epoch++;release();clearInterval(statsTimer);statsTimer=null;lastStats=null;renderedFrames=0;lastFrameCount=0;streamInfo='';closeMenu();composing=false;typingBusy=false;window.FarPlay.setPlaying(false);clearInterval(heartbeat);clearTimeout(sessionTimer);heartbeat=null;mode='idle';
   const previous=pc;pc=null;channel=null;previous?.close();
   window.FarPlay.disconnectPC();
   $('video').srcObject=null;$('session').hidden=true;$('setup').hidden=false;
@@ -18,6 +22,7 @@ function end(message='Disconnected. Tap Connect when you are ready.'){
 }
 function showSession(){
   clearTimeout(sessionTimer);if($('session').hidden)window.FarPlay.setPlaying(true);$('session').hidden=false;$('setup').hidden=true;
+  if(!statsTimer){statTime=performance.now();statsTimer=setInterval(updateStats,1000);}
   $('video').hidden=mode==='compatibility';$('compat').hidden=mode!=='compatibility';
 }
 function sound(){
@@ -35,7 +40,15 @@ async function startStream(){
   if(mode!=='connecting')return;
   const generation=epoch;
   const connection=new RTCPeerConnection({iceServers:[],bundlePolicy:'max-bundle'});pc=connection;
-  connection.addTransceiver('video',{direction:'recvonly'});connection.addTransceiver('audio',{direction:'recvonly'});
+  const videoReceiver=connection.addTransceiver('video',{direction:'recvonly'});
+  const audioReceiver=connection.addTransceiver('audio',{direction:'recvonly'});
+  for(const transceiver of [videoReceiver,audioReceiver]){try{if('jitterBufferTarget' in transceiver.receiver)transceiver.receiver.jitterBufferTarget=0;}catch{}}
+  // 60 FPS uses VP8, avoiding H.264 level 3.1's 720p30 negotiation limit.
+  if(Number($('frame-rate').value)===60&&videoReceiver.setCodecPreferences){
+    const codecs=RTCRtpReceiver.getCapabilities('video')?.codecs||[];
+    const vp8=codecs.filter(c=>c.mimeType.toLowerCase()==='video/vp8');
+    if(vp8.length)videoReceiver.setCodecPreferences([...vp8,...codecs.filter(c=>c.mimeType.toLowerCase()!=='video/vp8')]);
+  }
   channel=connection.createDataChannel('controls',{ordered:true});
   channel.onclose=()=>{if(pc===connection)compatibility();};
   const media=new MediaStream();$('video').srcObject=media;
@@ -54,7 +67,7 @@ async function startStream(){
     connection.addEventListener('icegatheringstatechange',check);check();
   });
   if(epoch!==generation||pc!==connection)return;
-  signal({type:'offer',sdp:connection.localDescription.sdp,width:Number($('quality').value)});
+  signal({type:'offer',sdp:connection.localDescription.sdp,width:Number($('quality').value),fps:Number($('frame-rate').value)||60});
 }
 async function packet(base64){
   if(mode!=='compatibility')return;
@@ -66,7 +79,7 @@ async function packet(base64){
       const frame=await createImageBitmap(new Blob([bytes.subarray(1)],{type:'image/jpeg'}));
       if(gen===epoch&&mode==='compatibility'){
         const canvas=$('compat');if(canvas.width!==frame.width)canvas.width=frame.width;if(canvas.height!==frame.height)canvas.height=frame.height;
-        canvas.getContext('2d',{alpha:false}).drawImage(frame,0,0);showSession();
+        canvas.getContext('2d',{alpha:false}).drawImage(frame,0,0);renderedFrames++;showSession();
       }
       frame.close();
     }finally{if(gen===epoch&&mode==='compatibility')signal({type:'frame-ack'});}
@@ -98,8 +111,8 @@ window.onNative=async(type,data)=>{
         heartbeat=setInterval(()=>{signal({type:'ping',at:Date.now()});send({type:'ping',at:Date.now()});},400);
         await startStream();
       }else if(data.type==='answer'&&pc)await pc.setRemoteDescription({type:'answer',sdp:data.sdp});
-      else if(data.type==='compatibility'){mode='compatibility';$('stats').textContent='Direct compatibility · up to 20 FPS';}
-      else if(data.type==='pong')$('stats').textContent=`${mode==='compatibility'?'Compatibility':'Direct'} · ${Date.now()-data.at} ms`;
+      else if(data.type==='compatibility'){mode='compatibility';$('stats').textContent='Compatibility · measuring FPS';}
+      else if(data.type==='pong'){networkMs=Date.now()-data.at;renderStats();}
     }
   }catch(e){end('Connection interrupted: '+e.message);}
 };
@@ -113,6 +126,7 @@ $('connect').onclick=()=>{
 };
 // Touch ownership prevents one thumb releasing a key still held by another input.
 const keyOwners=new Map(), activePointers=new Map();
+let physicalMouseButton=null;
 let joyPointer=null, lookPointer=null, lastX=0,lastY=0,lookTravel=0,lookStarted=0;
 let composing=false,typingBusy=false,composerKind='chat',draft='',cursorMode=false,toastTimer;
 let prefs={sensitivity:2,size:100,opacity:70,leftHanded:false};
@@ -126,7 +140,7 @@ function hold(key,down,owner){
   if(before&&!owners.size)send({type:'key',key,down:false});
 }
 function resetControls(){
-  keyOwners.clear();activePointers.clear();joyPointer=null;lookPointer=null;
+  keyOwners.clear();activePointers.clear();physicalMouseButton=null;joyPointer=null;lookPointer=null;
   $('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');
   document.querySelectorAll('.held').forEach(e=>e.classList.remove('held'));
   document.querySelectorAll('[data-toggle]').forEach(e=>e.setAttribute('aria-pressed','false'));
@@ -138,7 +152,21 @@ function openMenu(){release();$('settings-layer').hidden=false;}
 $('menu').onclick=openMenu;$('close-menu').onclick=closeMenu;$('settings-backdrop').onclick=closeMenu;
 $('leave').onclick=()=>end();$('sound').onclick=()=>{sound();toast('Sound enabled');};
 $('pause-game').onclick=()=>{closeMenu();tapKey('escape');};
-$('cursor-mode').onclick=()=>{cursorMode=!cursorMode;$('cursor-mode').setAttribute('aria-pressed',String(cursorMode));closeMenu();toast(cursorMode?'Cursor mode · swipe to move, tap to click':'Look mode · swipe to look around');};
+function toggleMouse(){release();cursorMode=!cursorMode;for(const id of ['cursor-mode','mouse-toggle'])$(id).setAttribute('aria-pressed',String(cursorMode));$('mouse-toggle').textContent=cursorMode?'Play':'Mouse';$('session').classList.toggle('mouse-mode',cursorMode);$('remote-cursor').hidden=!cursorMode;$('mouse-actions').hidden=!cursorMode;closeMenu();toast(cursorMode?'Mouse mode · tap to click. Open Game menu to release Minecraft’s mouse.':'Play mode · swipe to look');}
+$('cursor-mode').onclick=$('mouse-toggle').onclick=toggleMouse;
+$('game-fullscreen').onclick=()=>{closeMenu();tapKey('f11');toast('Fullscreen toggled on PC · F11');};
+let fillScreen=true;
+$('session').classList.add('fill-screen');
+$('screen-fit').onclick=()=>{fillScreen=!fillScreen;$('session').classList.toggle('fill-screen',fillScreen);$('screen-fit').setAttribute('aria-pressed',String(fillScreen));$('screen-fit').textContent=fillScreen?'Fill phone screen':'Fit entire desktop';};
+async function mouseClick(key){if(blocked())return;const gen=epoch;send({type:'button',key,down:true});await delay(40);if(epoch===gen)send({type:'button',key,down:false});}
+$('mouse-left').onclick=()=>mouseClick('left');$('mouse-right').onclick=()=>mouseClick('right');
+$('scroll-up').onclick=()=>send({type:'scroll',steps:3});$('scroll-down').onclick=()=>send({type:'scroll',steps:-3});
+function pointerPosition(e){
+ const box=$('look').getBoundingClientRect();let left=box.left,top=box.top,width=box.width,height=box.height;
+ if(!fillScreen){const media=mode==='compatibility'?$('compat'):$('video');const w=media.videoWidth||media.width,h=media.videoHeight||media.height;if(w&&h){const scale=Math.min(width/w,height/h);left+=(width-w*scale)/2;top+=(height-h*scale)/2;width=w*scale;height=h*scale;}}
+ const x=Math.max(0,Math.min(1,(e.clientX-left)/width)),y=Math.max(0,Math.min(1,(e.clientY-top)/height));
+ $('remote-cursor').style.left=(left-box.left+x*width)+'px';$('remote-cursor').style.top=(top-box.top+y*height)+'px';send({type:'pointer',x,y});
+} 
 $('hide-controls').onclick=()=>{release();$('touch-controls').hidden=true;$('restore-controls').hidden=false;closeMenu();};
 $('restore-controls').onclick=()=>{$('touch-controls').hidden=false;$('restore-controls').hidden=true;};
 function applyPreferences(value){
@@ -207,18 +235,41 @@ $('joystick').onpointerdown=e=>{e.preventDefault();if(blocked()||joyPointer!==nu
 $('joystick').onpointermove=e=>{if(e.pointerId===joyPointer)moveStick(e);};
 const stopStick=e=>{if(e.pointerId!==joyPointer)return;joyPointer=null;for(const key of ['w','a','s','d'])hold(key,false,'joystick');$('stick').style.transform='translate(0px,0px)';$('joystick').classList.remove('stick-active');};
 $('joystick').onpointerup=stopStick;$('joystick').onpointercancel=stopStick;$('joystick').onlostpointercapture=stopStick;
-$('look').onpointerdown=e=>{if(blocked()||lookPointer!==null)return;lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;lookTravel=0;lookStarted=performance.now();$('look').setPointerCapture(e.pointerId);};
-$('look').onpointermove=e=>{if(e.pointerId!==lookPointer)return;const x=e.clientX-lastX,y=e.clientY-lastY;lookTravel+=Math.abs(x)+Math.abs(y);send({type:'move',x:x*prefs.sensitivity,y:y*prefs.sensitivity});lastX=e.clientX;lastY=e.clientY;};
-$('look').onpointerup=async e=>{if(e.pointerId!==lookPointer)return;lookPointer=null;if(cursorMode&&lookTravel<8&&performance.now()-lookStarted<300){const gen=epoch;send({type:'button',key:'left',down:true});await delay(40);if(epoch===gen)send({type:'button',key:'left',down:false});}};
-$('look').onpointercancel=$('look').onlostpointercapture=()=>{lookPointer=null;};
+$('look').onpointerdown=e=>{if(blocked()||lookPointer!==null)return;if(cursorMode){pointerPosition(e);if(e.pointerType==='mouse'){physicalMouseButton=e.button===2?'right':'left';send({type:'button',key:physicalMouseButton,down:true});}}lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;lookTravel=0;lookStarted=performance.now();$('look').setPointerCapture(e.pointerId);};
+$('look').onpointermove=e=>{if(cursorMode&&!blocked()&&e.pointerType==='mouse'){pointerPosition(e);return;}if(e.pointerId!==lookPointer)return;const x=e.clientX-lastX,y=e.clientY-lastY;lookTravel+=Math.abs(x)+Math.abs(y);if(cursorMode)pointerPosition(e);else send({type:'move',x:x*prefs.sensitivity,y:y*prefs.sensitivity});lastX=e.clientX;lastY=e.clientY;};
+$('look').onpointerup=async e=>{if(e.pointerId!==lookPointer)return;lookPointer=null;if(physicalMouseButton){send({type:'button',key:physicalMouseButton,down:false});physicalMouseButton=null;return;}if(cursorMode&&lookTravel<8&&performance.now()-lookStarted<300){const gen=epoch;send({type:'button',key:'left',down:true});await delay(40);if(epoch===gen)send({type:'button',key:'left',down:false});}};
+$('look').onpointercancel=$('look').onlostpointercapture=()=>{lookPointer=null;if(physicalMouseButton){send({type:'button',key:physicalMouseButton,down:false});physicalMouseButton=null;}};
 window.addEventListener('blur',release);
 window.addEventListener('resize',release);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)end('Paused. Tap Connect to resume.');});
 window.addEventListener('pagehide',()=>end());
 window.addEventListener('contextmenu',e=>{if(!$('session').hidden)e.preventDefault();});
+$('look').onwheel=e=>{if(cursorMode&&!blocked()){e.preventDefault();send({type:'scroll',steps:e.deltaY>0?-1:1});}};
 const keyMap={KeyW:'w',KeyA:'a',KeyS:'s',KeyD:'d',Space:'space',ShiftLeft:'shift',ControlLeft:'ctrl',KeyE:'e',KeyT:'t',Escape:'escape',Enter:'enter',Backspace:'backspace'};
 for(let i=1;i<=9;i++)keyMap['Digit'+i]=String(i);
 for(const type of ['keydown','keyup'])window.addEventListener(type,e=>{
   if(blocked()||!keyMap[e.code]||e.repeat||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
   e.preventDefault();hold(keyMap[e.code],type==='keydown','physical-'+e.code);
 });
+
+function renderStats(){if(!$('session').hidden)$('stats').textContent=`${mode==='compatibility'?'Compatibility':'Direct'} · ${networkMs} ms${streamInfo?' · '+streamInfo:''}`;}
+async function updateStats(){
+ const connection=pc,gen=epoch;
+ if(mode==='compatibility'){
+  const now=performance.now();streamInfo=Math.round((renderedFrames-lastFrameCount)*1000/(now-statTime))+' FPS';lastFrameCount=renderedFrames;statTime=now;renderStats();return;
+ }
+ if(!connection)return;
+ try{
+  const report=await connection.getStats();if(gen!==epoch||connection!==pc)return;
+  for(const item of report.values())if(item.type==='inbound-rtp'&&(item.kind==='video'||item.mediaType==='video')){
+   if(lastStats&&item.timestamp>lastStats.timestamp){
+    const count=item.framesDecoded-lastStats.framesDecoded;const fps=Math.round(count*1000/(item.timestamp-lastStats.timestamp));
+    const emitted=item.jitterBufferEmittedCount-lastStats.jitterBufferEmittedCount;
+    const bufferMs=emitted>0?Math.round((item.jitterBufferDelay-lastStats.jitterBufferDelay)*1000/emitted):0;
+    streamInfo=(Number.isFinite(fps)?fps+' FPS':'')+(Number.isFinite(bufferMs)?' · buffer '+bufferMs+' ms':'');
+   }
+   lastStats=item;
+  }
+  renderStats();
+ }catch{} // Older WebViews may omit individual statistics.
+}

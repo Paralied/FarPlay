@@ -271,6 +271,11 @@ public class MainActivity extends Activity {
     private void setPlayMode(boolean enabled){
         if(playing==enabled)return;playing=enabled;
         if(!enabled&&composer!=null){composer.dismiss();composer=null;}
+        if(android.os.Build.VERSION.SDK_INT>=28){
+            WindowManager.LayoutParams params=getWindow().getAttributes();
+            params.layoutInDisplayCutoutMode=enabled?WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES:WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+            getWindow().setAttributes(params);
+        }
         setRequestedOrientation(enabled?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         getWindow().getDecorView().setSystemUiVisibility(enabled?immersiveFlags():View.SYSTEM_UI_FLAG_VISIBLE);
     }
